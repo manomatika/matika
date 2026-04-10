@@ -1,0 +1,19 @@
+.venv/
+__pycache__/
+*.pyc
+*.db
+.DS_Store
+logs/
+.gemini/
+.gitignore.swp
+
+# Node.js
+node_modules/
+dist/
+package-lock.json
+
+# Generated assets
+src/matika/static/js/*.js
+
+# Data
+data/

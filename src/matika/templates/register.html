@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>{{ t.heading_register }}</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="register-container">
+        <h1>{{ t.heading_register }}</h1>
+
+        {% if error %}
+        <div style="background-color: #fee; color: #c00; padding: 10px; border-radius: 4px; margin-bottom: 20px; text-align: center; border: 1px solid #fcc;">
+            {{ error }}
+        </div>
+        {% endif %}
+
+        <form action="/register" method="post">
+            <label>{{ t.label_username }}</label>
+            <input type="text" name="username" required>
+            <label>{{ t.label_email }}</label>
+            <input type="email" name="email" required>
+            <label>{{ t.label_password }}</label>
+            <input type="password" name="password" required>
+            <button type="submit">{{ t.btn_register }}</button>
+        </form>
+        <p><a href="/login">{{ t.nav_login }}</a></p>
+    </div>
+</body>
+</html>

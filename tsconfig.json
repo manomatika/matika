@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "ES2016",
+    "module": "ESNext",
+    "moduleResolution": "node",
+    "outDir": "src/matika/static/js",
+    "rootDir": "src/frontend",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "lib": ["DOM", "ES2016"],
+    "ignoreDeprecations": "6.0"
+  },
+  "include": ["src/frontend/**/*.ts"]
+}

@@ -1,0 +1,141 @@
+name: Build Standalone Installers
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  discussions: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.os }} (${{ matrix.arch }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [macos-latest, windows-latest]
+        arch: [x64, arm64]
+        exclude:
+          - os: windows-latest
+            arch: arm64
+        include:
+          - os: macos-latest
+            arch: x64
+            artifact_name: matika-macos-intel
+            asset_name: matika-macos-intel.dmg
+          - os: macos-latest
+            arch: arm64
+            artifact_name: matika-macos-arm64
+            asset_name: matika-macos-arm64.dmg
+          - os: windows-latest
+            arch: x64
+            artifact_name: matika-windows-setup
+            asset_name: matika-windows-setup.exe
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          architecture: ${{ matrix.arch }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install Frontend Dependencies
+        run: npm install
+
+      - name: Build Frontend
+        run: npm run build
+
+      - name: Install Python Dependencies
+        shell: bash
+        run: |
+          if [ "${{ matrix.arch }}" == "x64" ] && [ "${{ matrix.os }}" == "macos-latest" ]; then
+            arch -x86_64 python -m pip install --upgrade pip
+            arch -x86_64 pip install pyinstaller uvicorn fastapi sqlalchemy jinja2 passlib bcrypt==3.2.2 python-multipart pyyaml curl-cffi yfinance pandas itsdangerous authlib python-jose[cryptography] beautifulsoup4 httpx psycopg2-binary pymysql
+          else
+            python -m pip install --upgrade pip
+            pip install pyinstaller uvicorn fastapi sqlalchemy jinja2 passlib bcrypt==3.2.2 python-multipart pyyaml curl-cffi yfinance pandas itsdangerous authlib python-jose[cryptography] beautifulsoup4 httpx psycopg2-binary pymysql
+          fi
+
+      - name: Build Standalone with PyInstaller
+        shell: bash
+        run: |
+          export PYTHONPATH=$PYTHONPATH:$(pwd)/src
+          if [ "${{ matrix.arch }}" == "x64" ] && [ "${{ matrix.os }}" == "macos-latest" ]; then
+            export PYI_ARCH="x86_64"
+            arch -x86_64 pyinstaller --clean matika.spec
+            # Ad-hoc sign the bundle for Sequoia compatibility
+            codesign --force --deep --sign - dist/Matika.app
+          elif [ "${{ matrix.arch }}" == "arm64" ] && [ "${{ matrix.os }}" == "macos-latest" ]; then
+            export PYI_ARCH="arm64"
+            pyinstaller --clean matika.spec
+            codesign --force --deep --sign - dist/Matika.app
+          else
+            pyinstaller --clean matika.spec
+          fi
+
+      - name: Create macOS DMG
+        if: matrix.os == 'macos-latest'
+        run: |
+          # Use a professional DMG creation tool
+          npm install -g appdmg
+          echo '{
+            "title": "Matika Installer",
+            "window": { "size": { "width": 600, "height": 400 } },
+            "icon-size": 128,
+            "contents": [
+              { "x": 448, "y": 180, "type": "link", "path": "/Applications" },
+              { "x": 152, "y": 180, "type": "file", "path": "dist/Matika.app" }
+            ]
+          }' > appdmg.json
+          appdmg appdmg.json ${{ matrix.asset_name }}
+
+      - name: Create Windows Installer (Inno Setup)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          # Update ISS to look in dist/Matika/ folder
+          (Get-Content scripts/windows_installer.iss) -replace '\.\.\\dist\\matika.exe', '..\dist\Matika\Matika.exe' | Set-Content scripts/windows_installer.iss
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" scripts/windows_installer.iss
+          Move-Item -Path matika-windows-setup.exe -Destination ${{ matrix.asset_name }}
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.asset_name }}
+
+  release:
+    name: Create Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/matika-macos-intel/matika-macos-intel.dmg
+            artifacts/matika-macos-arm64/matika-macos-arm64.dmg
+            artifacts/matika-windows-setup/matika-windows-setup.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

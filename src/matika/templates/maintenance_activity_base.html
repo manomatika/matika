@@ -1,0 +1,151 @@
+{% extends "base.html" %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+<link rel="stylesheet" href="/static/css/maintenance_activity.css">
+
+<div class="activity-container">
+    <!-- Title Panel (TP) -->
+    <div class="title-panel">
+        <div class="label-panel">
+            <h2 id="activity-title">{{ title }}</h2>
+        </div>
+        <div class="button-bar-panel">
+            {% block action_buttons %}
+                {% if metadata and metadata.maintenance_panel %}
+                    {% if 'new' in metadata.maintenance_panel.buttons %}
+                    <button id="btn-new" class="btn-action btn-new">{{ t.btn_new or 'New' }}</button>
+                    {% endif %}
+                    {% if 'edit' in metadata.maintenance_panel.buttons %}
+                    <button id="btn-edit" class="btn-action btn-edit" disabled>{{ t.btn_edit or 'Edit' }}</button>
+                    {% endif %}
+                    {% if 'delete' in metadata.maintenance_panel.buttons %}
+                    <button id="btn-delete" class="btn-action btn-delete" disabled>{{ t.btn_delete or 'Delete' }}</button>
+                    {% endif %}
+                {% else %}
+                    <button id="btn-new" class="btn-action btn-new">New</button>
+                    <button id="btn-edit" class="btn-action btn-edit" disabled>Edit</button>
+                    <button id="btn-delete" class="btn-action btn-delete" disabled>Delete</button>
+                {% endif %}
+            {% endblock %}
+
+            <!-- Bulk Dropdown -->
+            <div class="dropdown-container">
+                <button id="btn-bulk" class="btn-action btn-bulk">
+                    Bulk
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-9"/></svg>
+                </button>
+                <div class="dropdown-content">
+                    <div id="btn-bulk-add">{{ t.item_bulk_add or 'Bulk Add' }}</div>
+                    <div id="btn-bulk-delete">{{ t.item_bulk_delete or 'Bulk Delete' }}</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Activities Main Panel (AMP) -->
+    <div class="activities-main-panel">
+        <!-- Browse Panel (BP) -->
+        <div class="browse-panel">
+            <!-- Advanced Search Panel (ASP) -->
+            <div class="advanced-search-panel">
+                <select id="search-field" class="edit-input" style="width: 150px;">
+                    {% block search_fields %}
+                        {% if metadata and metadata.browse_panel %}
+                            {% set s_fields = metadata.browse_panel.search_fields or metadata.browse_panel.columns %}
+                            {% for col in s_fields %}
+                            <option value="{{ col.name }}">{{ t[col.label_key] if t and col.label_key in t else col.name }}</option>
+                            {% endfor %}
+                        {% endif %}
+                    {% endblock %}
+                </select>
+                <input type="text" id="search-input" class="edit-input" placeholder="Search..." style="flex: 1;">
+                <button id="btn-search" class="btn-action">{{ t.btn_search or 'Search' }}</button>
+            </div>
+
+            <!-- Browse Table (BT) -->
+            <div class="browse-table-container">
+                <table class="browse-table" id="browse-table">
+                    <thead>
+                        <tr>
+                            {% block table_headers %}
+                                {% if metadata and metadata.browse_panel %}
+                                    {% for col in metadata.browse_panel.columns %}
+                                    <th>{{ t[col.label_key] if t and col.label_key in t else col.name }}</th>
+                                    {% endfor %}
+                                {% endif %}
+                            {% endblock %}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% block table_rows %}
+                            <!-- Rows should be populated by the child template -->
+                        {% endblock %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Maintenance Panel (MP) -->
+        <div class="maintenance-panel">
+            <!-- Maintenance Form (MF) -->
+            <div class="maintenance-form" id="maintenance-form">
+                {% block form_content %}
+                    {% if metadata and metadata.maintenance_panel %}
+                        {% for field in metadata.maintenance_panel.fields %}
+                        <div class="form-group" id="group-{{ field.name }}">
+                            <label for="field-{{ field.name }}">{{ t[field.label_key] if t and field.label_key in t else field.name }}</label>
+                            
+                            {% if field.type == 'select' %}
+                                <select id="field-{{ field.name }}" name="{{ field.name }}" class="edit-input" {% if field.read_only %}disabled{% endif %}>
+                                    {% if field.options_source == 'security_types' and security_types %}
+                                        {% for st in security_types %}
+                                        <option value="{{ st.value }}">{{ st.value }}</option>
+                                        {% endfor %}
+                                    {% elif field.options_source == 'asset_classes' and asset_classes %}
+                                        <option value="">-- Select Asset Class --</option>
+                                        {% for ac in asset_classes %}
+                                        <option value="{{ ac.value }}">{{ ac.value }}</option>
+                                        {% endfor %}
+                                    {% endif %}
+                                </select>
+                            {% else %}
+                                <div class="{% if field.has_lookup or field.has_refresh %}symbol-lookup-container{% endif %}">
+                                    <input type="text" id="field-{{ field.name }}" name="{{ field.name }}" class="edit-input" 
+                                           {% if field.read_only %}readonly{% endif %}
+                                           {% if field.required %}required{% endif %}>
+                                    {% if field.has_lookup %}
+                                    <button type="button" class="btn-lookup" style="display: none;">Lookup</button>
+                                    {% endif %}
+                                    {% if field.has_refresh %}
+                                    <button type="button" class="btn-refresh-field" data-field="{{ field.name }}" style="display: none;" title="Refresh Current Price">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6"></path><path d="M1 20v-6h6"></path><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+                                    </button>
+                                    {% endif %}
+                                </div>
+                            {% endif %}
+                        </div>
+                        {% endfor %}
+                    {% endif %}
+                {% endblock %}
+            </div>
+
+            <!-- Save Panel (SP) -->
+            <div class="save-panel">
+                {% block save_buttons %}
+                <button id="btn-save" class="btn-action btn-save" disabled>{{ t.btn_save or 'Save' }}</button>
+                <button id="btn-cancel" class="btn-action btn-cancel" disabled>{{ t.btn_cancel or 'Cancel' }}</button>
+                {% endblock %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Status & Error Panel (SEP) -->
+    <div id="status-error-panel" class="status-error-panel" style="display: none;">
+        <div id="sep-content"></div>
+    </div>
+</div>
+
+{% block extra_scripts %}{% endblock %}
+{% endblock %}

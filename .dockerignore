@@ -1,0 +1,16 @@
+.git
+.venv
+node_modules
+__pycache__
+.pytest_cache
+*.db
+logs/*.log
+dist/
+build/
+*.egg-info
+.env
+Dockerfile
+.dockerignore
+milestone_tasks.yaml
+scripts/
+tests/

@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+
+{% block title %}{{ t.heading_about }}{% endblock %}
+
+{% block content %}
+<div style="text-align: center; margin-top: 50px;">
+    <h1>Matika</h1>
+    <p>{{ t.label_version }} {{ version }}</p>
+    <div style="margin-top: 50px;">
+        <p>{{ t.label_copyright }} &copy; 2026 Patrick James Tallman</p>
+    </div>
+</div>
+{% endblock %}

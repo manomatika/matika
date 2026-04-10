@@ -1,0 +1,73 @@
+{% macro export_form(action_url, heading, default_filename, categories, t) %}
+<div class="settings-container">
+    <div class="settings-section">
+        <h1>{{ heading }}</h1>
+
+        <form action="{{ action_url }}" method="post">
+            <div class="form-group">
+                <label for="filename">{{ t.label_export_filename or 'Export Filename:' }}</label>
+                <input type="text" id="filename" name="filename" value="{{ default_filename }}" required>
+            </div>
+
+            <div style="margin-bottom: 20px;">
+                <p style="font-weight: bold; margin-bottom: 10px;">{{ t.label_data_categories or 'Data Categories:' }}</p>
+                
+                {% for cat in categories %}
+                <div style="margin-bottom: 10px;">
+                    <input type="checkbox" id="inc_{{ cat.id }}" name="{{ cat.name }}" checked style="width: auto;">
+                    <label for="inc_{{ cat.id }}" style="display: inline;">{{ cat.label or cat.name }}</label>
+                </div>
+                {% endfor %}
+            </div>
+
+            <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                <a href="/settings/user" class="btn-action" style="text-decoration: none; padding: 10px 20px; background: #eee; color: #333; border-radius: 4px; border: 1px solid #ccc;">{{ t.btn_cancel }}</a>
+                <button type="submit" class="btn-save-settings">{{ t.btn_export }}</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endmacro %}
+
+{% macro import_form(action_url, heading, categories, t, success, error) %}
+<div class="settings-container">
+    <div class="settings-section">
+        <h1>{{ heading }}</h1>
+
+        {% if success %}
+        <div style="background-color: #dfd; color: #28a745; padding: 15px; border-radius: 4px; margin-bottom: 20px; border: 1px solid #c8e6c9;">
+            {{ t.msg_import_success }}
+        </div>
+        {% endif %}
+
+        {% if error %}
+        <div style="background-color: #fdd; color: #c00; padding: 15px; border-radius: 4px; margin-bottom: 20px; border: 1px solid #ffcdd2;">
+            {{ t.msg_import_fail }}
+        </div>
+        {% endif %}
+
+        <form action="{{ action_url }}" method="post" enctype="multipart/form-data">
+            <div class="form-group">
+                <label for="file">{{ t.label_import_file }}</label>
+                <input type="file" id="file" name="file" accept=".json" required>
+            </div>
+
+            <div style="margin-bottom: 20px;">
+                <p style="font-weight: bold; margin-bottom: 10px;">{{ t.label_import_categories or 'Data Categories to Import:' }}</p>
+                
+                {% for cat in categories %}
+                <div style="margin-bottom: 10px;">
+                    <input type="checkbox" id="inc_{{ cat.id }}" name="{{ cat.name }}" checked style="width: auto;">
+                    <label for="inc_{{ cat.id }}" style="display: inline;">{{ cat.label or cat.name }}</label>
+                </div>
+                {% endfor %}
+            </div>
+
+            <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                <a href="/settings/user" class="btn-action" style="text-decoration: none; padding: 10px 20px; background: #eee; color: #333; border-radius: 4px; border: 1px solid #ccc;">{{ t.btn_cancel }}</a>
+                <button type="submit" class="btn-save-settings">{{ t.btn_import }}</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endmacro %}

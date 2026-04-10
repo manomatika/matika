@@ -1,0 +1,63 @@
+{% extends "maintenance_activity_base.html" %}
+
+{% block table_rows %}
+    {% for s in securities %}
+    <tr data-id="{{ s.id }}" 
+        {% for field in metadata.maintenance_panel.fields %}
+        data-{{ field.name | replace('_', '-') }}="{{ s[field.name].value if s[field.name].value is defined else (s[field.name] or '') }}"
+        {% endfor %}
+    >
+        {% for col in metadata.browse_panel.columns %}
+        <td>{{ s[col.name].value if s[col.name].value is defined else (s[col.name] or '') }}</td>
+        {% endfor %}
+    </tr>
+    {% endfor %}
+{% endblock %}
+
+{% block extra_scripts %}
+    <!-- Hidden form for actual submission -->
+    <form id="action-form" method="post" style="display:none;">
+        {% for field in metadata.maintenance_panel.fields %}
+        <input type="hidden" name="{{ field.name }}" id="form-{{ field.name | replace('_', '-') }}">
+        {% endfor %}
+    </form>
+
+    <!-- Lookup Modal -->
+    <div id="lookup-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-container">
+            <div class="modal-header">{{ t.heading_security_lookup or 'Security Lookup' }}</div>
+            
+            <div class="modal-search-area">
+                <input type="text" id="lookup-search-input" class="edit-input" placeholder="Enter symbol or name..." style="flex: 1;">
+                <button id="btn-lookup-search" class="btn-action">Search</button>
+            </div>
+
+            <div id="lookup-results-container" style="flex: 1; overflow-y: auto;">
+                <table class="lookup-results-table">
+                    <thead>
+                        <tr>
+                            <th>{{ t.th_symbol or 'Symbol' }}</th>
+                            <th>{{ t.th_name or 'Name' }}</th>
+                        </tr>
+                    </thead>
+                    <tbody id="lookup-results-list">
+                        <!-- Results populated here -->
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="modal-footer" style="padding: 10px 20px; border-top: 1px solid #eee; display: flex; justify-content: space-between; align-items: center;">
+                <div id="lookup-results-count" style="font-size: 0.9em; color: #666;"></div>
+                <div style="display: flex; gap: 10px;">
+                    <button class="btn-action" id="btn-ok-lookup" disabled>{{ t.btn_ok or 'OK' }}</button>
+                    <button class="btn-action" id="btn-close-lookup">{{ t.btn_cancel or 'Cancel' }}</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script id="metadata-json" type="application/json">
+        {{ metadata | tojson }}
+    </script>
+    <script src="/static/js/admin_securities.js" type="module"></script>
+{% endblock %}

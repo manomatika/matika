@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+
+{% block title %}{{ t.heading_user_maintenance }}{% endblock %}
+
+{% block content %}
+    <style>
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; cursor: pointer; }
+        th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
+        th { background-color: #f4f4f4; }
+        
+        .selected-row {
+            background-color: #e0f0ff !important;
+            outline: 2px solid #007bff;
+        }
+        
+        tr:hover:not(.selected-row) {
+            background-color: #f9f9f9;
+        }
+
+        .action-bar {
+            margin-bottom: 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .left-actions, .right-actions {
+            display: flex; gap: 10px;
+        }
+
+        .btn-action {
+            padding: 8px 16px;
+            font-weight: bold;
+            cursor: pointer;
+            border: 1px solid #ccc;
+            background-color: #f4f4f4;
+            border-radius: 4px;
+        }
+
+        .btn-action:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .btn-delete { color: #c00; }
+        .btn-edit { color: #007bff; }
+        .btn-save { color: #28a745; border-color: #28a745; }
+        .btn-cancel { color: #6c757d; }
+
+        input[type="text"].edit-input {
+            width: 90%;
+            padding: 4px;
+        }
+    </style>
+
+    <h1>{{ t.heading_user_maintenance }}</h1>
+
+    <p>{{ t.label_current_user }}: <strong>{{ user.username or user.email }}</strong></p>
+
+    <div class="action-bar">
+        <div class="left-actions">
+            <button id="btn-new" class="btn-action btn-edit" style="color: #28a745; border-color: #28a745;">{{ t.btn_new_user }}</button>
+            <button id="btn-edit" class="btn-action btn-edit">{{ t.btn_edit }}</button>
+            <button id="btn-delete" class="btn-action btn-delete">{{ t.btn_delete }}</button>
+        </div>
+        <div class="right-actions">
+            <button id="btn-save" class="btn-action btn-save" disabled>{{ t.btn_save }}</button>
+            <button id="btn-cancel" class="btn-action btn-cancel" disabled>{{ t.btn_cancel }}</button>
+        </div>
+    </div>
+
+    <table id="user-table">
+        <thead>
+            <tr>
+                <th>{{ t.th_id }}</th>
+                <th>{{ t.th_username }}</th>
+                <th>{{ t.th_email }}</th>
+                <th>{{ t.th_provider }}</th>
+                <th>{{ t.th_force_pw_change }}</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for u in users %}
+            <tr id="row-{{ u.id }}" data-user-id="{{ u.id }}" data-is-self="{{ 'true' if u.id == user.id else 'false' }}">
+                <td>{{ u.id }}</td>
+                <td class="col-username" data-original="{{ u.username }}">{{ u.username or u.email.split('@')[0] }}</td>
+                <td class="col-email" data-original="{{ u.email }}">{{ u.email }}</td>
+                <td>{{ u.provider }}</td>
+                <td class="col-force-pw" data-original="{{ 'true' if u.force_password_change else 'false' }}">
+                    {{ t.msg_yes if u.force_password_change else t.msg_no }}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <!-- Hidden form for Save/Delete/Create -->
+    <form id="action-form" method="post" style="display:none;">
+        <input type="hidden" name="username" id="form-username">
+        <input type="hidden" name="email" id="form-email">
+        <input type="hidden" name="force_password_change" id="form-force-pw">
+    </form>
+
+    <script src="/static/js/admin_users.js" type="module"></script>
+{% endblock %}

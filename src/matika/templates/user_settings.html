@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+
+{% block title %}{{ t.item_user_settings }}{% endblock %}
+
+{% block content %}
+<div class="settings-container">
+    <h1>{{ t.heading_user_settings }}</h1>
+    
+    <div style="margin-top: 30px; display: flex; gap: 40px; align-items: flex-start;">
+        <div class="profile-photo-section" style="text-align: center;">
+            {% if user.photo_url %}
+                <img src="{{ user.photo_url }}" alt="Profile Photo" style="width: 150px; height: 150px; object-fit: cover; border-radius: 50%; border: 2px solid #ddd;">
+            {% else %}
+                <div style="width: 150px; height: 150px; background: #eee; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #999; border: 2px solid #ddd;">
+                    No Photo
+                </div>
+            {% endif %}
+            
+            <form action="/settings/user/upload-photo" method="post" enctype="multipart/form-data" style="margin-top: 15px;">
+                <input type="file" name="file" accept="image/*" required style="width: 200px; font-size: 0.8em;">
+                <br><br>
+                <button type="submit" class="btn-action" style="font-size: 0.8em; padding: 5px 10px;">Upload Photo</button>
+            </form>
+        </div>
+
+        <div>
+            <p>{{ t.msg_no_user_settings }}</p>
+            <p><a href="/settings/user/change-username" class="btn">{{ t.link_change_username }}</a></p>
+            <p><a href="/settings/user/change-password" class="btn">{{ t.link_change_password }}</a></p>
+        </div>
+    </div>
+</div>
+{% endblock %}

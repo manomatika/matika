@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <title>{% block title %}{{ t.title }}{% endblock %}</title>
+    <style>
+        .dropdown div.menu-separator {
+            padding: 0;
+            height: 1px;
+            background-color: #ddd;
+            margin: 5px 0;
+            pointer-events: none; /* Don't highlight on hover */
+        }
+    </style>
+</head>
+<body>
+    <div class="menu-bar">
+        <div class="menu-item" data-href="/">{{ t.item_home or 'Home' }}</div>
+
+        <div class="menu-item">{{ t.menu_activities or 'Activities' }}
+            <div class="dropdown">
+                <div data-href="/admin/securities">{{ t.item_securities or 'Securities' }}</div>
+            </div>
+        </div>
+{% if user and 'Admin' in user.roles | map(attribute='name') %}
+<div class="menu-item">{{ t.menu_admin or 'Admin' }}
+    <div class="dropdown">
+        <div data-href="/admin/roles">{{ t.item_roles or 'Roles' }}</div>
+        <div data-href="/admin/permissions">{{ t.item_permissions or 'Permissions' }}</div>
+        <div data-href="/admin/users">{{ t.item_users or 'Users' }}</div>
+        <div class="menu-separator"></div>
+        <div data-href="/settings/system">{{ t.item_system_settings }}</div>
+        <div data-href="/admin/settings/export">{{ t.link_system_export }}</div>
+        <div data-href="/admin/settings/import">{{ t.link_system_import }}</div>
+    </div>
+</div>
+{% endif %}
+
+<div class="menu-item">{{ t.menu_help }}
+            <div class="dropdown">
+                <div data-href="/show-log" data-target="_blank">{{ t.item_show_log }}</div>
+                <div data-href="/about">{{ t.item_about }}</div>
+            </div>
+        </div>
+
+        <div class="user-info">
+            {% if user %}
+                <span>{{ t.msg_logged_in_as }} {{ user.email }}</span>
+                <a href="/logout" style="margin-right: 15px;">{{ t.nav_logout }}</a>
+                
+                <div class="menu-item" style="padding: 0;">
+                    {% if user.photo_url %}
+                        <img src="{{ user.photo_url }}" class="user-photo" alt="User Photo">
+                    {% else %}
+                        <div class="user-photo" style="display: flex; align-items: center; justify-content: center; font-size: 10px; color: #666;">
+                            RP
+                        </div>
+                    {% endif %}
+                    <div class="dropdown" style="left: auto; right: 0;">
+                        <div data-href="/settings/user">{{ t.item_user_settings }}</div>
+                        <div data-href="/settings/export">{{ t.link_export_data }}</div>
+                        <div data-href="/settings/import">{{ t.link_import_data }}</div>
+                        <div class="menu-separator"></div>
+                        <div data-href="/logout">{{ t.nav_logout }}</div>
+                    </div>
+                </div>
+            {% else %}
+                <a href="/login">{{ t.nav_login }}</a>
+                <a href="/register">{{ t.nav_register }}</a>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="content">
+        {% block content %}{% endblock %}
+    </div>
+
+    <script src="/static/js/main.js" type="module"></script>
+</body>
+</html>

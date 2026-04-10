@@ -1,0 +1,36 @@
+{
+  "export_import": {
+    "supports_user_data": true,
+    "supports_system_data": false,
+    "user_data_categories": [
+      {"id": "securities", "name": "include_securities", "label_key": "label_include_securities"}
+    ]
+  },
+  "browse_panel": {
+    "search_fields": [
+      {"name": "symbol", "label_key": "th_symbol"},
+      {"name": "name", "label_key": "th_name"}
+    ],
+    "columns": [
+      {"name": "symbol", "label_key": "th_symbol"},
+      {"name": "name", "label_key": "th_name"}
+    ]
+  },
+  "maintenance_panel": {
+    "buttons": ["new", "edit", "delete"],
+    "fields": [
+      {"name": "symbol", "label_key": "label_symbol", "read_only": false, "required": true, "has_lookup": true},
+      {"name": "name", "label_key": "label_name", "read_only": false, "required": true},
+      {"name": "security_type", "label_key": "label_security_type", "read_only": false, "type": "select", "options_source": "security_types"},
+      {"name": "asset_class", "label_key": "label_asset_class", "read_only": false, "type": "select", "options_source": "asset_classes"},
+      {"name": "previous_close", "label_key": "label_previous_close", "read_only": false},
+      {"name": "open_price", "label_key": "label_open", "read_only": false},
+      {"name": "current_price", "label_key": "label_current_price", "read_only": false, "has_refresh": true},
+      {"name": "nav", "label_key": "label_nav", "read_only": false},
+      {"name": "range_52_week", "label_key": "label_52_week_range", "read_only": false},
+      {"name": "avg_volume", "label_key": "label_avg_volume", "read_only": false},
+      {"name": "yield_30_day", "label_key": "label_30_day_yield", "read_only": false, "suffix": "%"},
+      {"name": "yield_7_day", "label_key": "label_7_day_yield", "read_only": false, "suffix": "%"}
+    ]
+  }
+}

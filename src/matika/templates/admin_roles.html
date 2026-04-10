@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+
+{% block title %}{{ t.heading_roles_maintenance }}{% endblock %}
+
+{% block content %}
+    <style>
+        .section-header { margin-top: 20px; border-bottom: 1px solid #ddd; padding-bottom: 5px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; cursor: pointer; }
+        th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
+        th { background-color: #f4f4f4; }
+        
+        .selected-row {
+            background-color: #e0f0ff !important;
+            outline: 2px solid #007bff;
+        }
+        
+        tr:hover:not(.selected-row) { background-color: #f9f9f9; }
+
+        .action-bar {
+            margin: 15px 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .btn-action {
+            padding: 8px 16px;
+            font-weight: bold;
+            cursor: pointer;
+            border: 1px solid #ccc;
+            background-color: #f4f4f4;
+            border-radius: 4px;
+        }
+
+        .btn-action:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-delete { color: #c00; }
+        .btn-edit { color: #007bff; }
+        .btn-save { color: #28a745; border-color: #28a745; }
+        .btn-cancel { color: #6c757d; }
+        .btn-add { color: #28a745; }
+
+        .edit-input { width: 95%; padding: 4px; }
+        
+        .child-table-container { margin-top: 30px; padding: 15px; border: 1px solid #ddd; border-radius: 4px; background: #fff; }
+        .child-actions { margin-bottom: 10px; display: flex; gap: 10px; align-items: center; }
+        
+        .remove-btn { color: #c00; font-weight: bold; border: none; background: none; cursor: pointer; }
+    </style>
+
+    <h1>{{ t.heading_roles_maintenance }}</h1>
+
+    <div class="action-bar">
+        <div class="left-actions">
+            <button id="btn-new" class="btn-action btn-add">{{ t.btn_new_role }}</button>
+            <button id="btn-edit" class="btn-action btn-edit">{{ t.btn_edit }}</button>
+            <button id="btn-delete" class="btn-action btn-delete">{{ t.btn_delete }}</button>
+        </div>
+        <div class="right-actions">
+            <button id="btn-save" class="btn-action btn-save" disabled>{{ t.btn_save }}</button>
+            <button id="btn-cancel" class="btn-action btn-cancel" disabled>{{ t.btn_cancel }}</button>
+        </div>
+    </div>
+
+    <div class="section-header">{{ t.item_roles }}</div>
+    <table id="roles-table">
+        <thead>
+            <tr>
+                <th>{{ t.th_id }}</th>
+                <th>{{ t.th_role_name }}</th>
+                <th>{{ t.th_description }}</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in roles %}
+            <tr id="role-{{ r.id }}" 
+                data-role-id="{{ r.id }}" 
+                data-role-name="{{ r.name }}" 
+                data-role-desc="{{ r.description }}"
+                data-role-users="{{ r.users | map(attribute='id') | list | join(',') }}">
+                <td>{{ r.id }}</td>
+                <td class="col-name" data-original="{{ r.name }}">{{ r.name }}</td>
+                <td class="col-desc" data-original="{{ r.description }}">{{ r.description }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <div id="child-container" class="child-table-container">
+        <div class="section-header">{{ t.heading_assigned_users }}</div>
+        <div class="child-actions">
+            <select id="user-selector" class="edit-input" style="width: 250px;">
+                <option value="">{{ t.option_select_user }}</option>
+                {% for u in all_users %}
+                <option value="{{ u.id }}">{{ u.username }} ({{ u.email }})</option>
+                {% endfor %}
+            </select>
+            <button id="btn-add-user" class="btn-action btn-add" disabled>{{ t.btn_add_user }}</button>
+        </div>
+        <table id="assigned-users-table">
+            <thead>
+                <tr>
+                    <th>{{ t.th_id }}</th>
+                    <th>{{ t.th_username }}</th>
+                    <th>{{ t.th_email }}</th>
+                    <th>{{ t.th_action or 'Action' }}</th>
+                </tr>
+            </thead>
+            <tbody>
+                <!-- Populated by JS -->
+            </tbody>
+        </table>
+    </div>
+
+    <form id="role-form" method="post" style="display:none;">
+        <input type="hidden" name="name" id="form-role-name">
+        <input type="hidden" name="description" id="form-role-desc">
+        <input type="hidden" name="user_ids" id="form-user-ids">
+    </form>
+
+    <div id="all-users-data" style="display:none;" 
+         data-users='{ {% for u in all_users %}"{{ u.id }}": {"id": {{ u.id }}, "username": "{{ u.username }}", "email": "{{ u.email }}"}{% if not loop.last %},{% endif %}{% endfor %} }'>
+    </div>
+
+    <script src="/static/js/admin_roles.js" type="module"></script>
+{% endblock %}

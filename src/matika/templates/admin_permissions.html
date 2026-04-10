@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+
+{% block title %}{{ t.heading_permissions_maintenance }}{% endblock %}
+
+{% block content %}
+    <style>
+        .page-type-section { margin-bottom: 40px; border: 1px solid #ddd; border-radius: 8px; padding: 20px; background: #fff; }
+        .page-type-header { font-size: 1.2em; font-weight: bold; border-bottom: 2px solid #000; padding-bottom: 5px; margin-bottom: 15px; }
+        
+        .page-row { border: 1px solid #eee; margin-bottom: 15px; border-radius: 4px; overflow: hidden; }
+        .page-row-header { background: #f8f9fa; padding: 10px 15px; font-weight: 600; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #eee; }
+        .page-row-header:hover { background: #e9ecef; cursor: pointer; }
+        .page-row.selected { outline: 2px solid #007bff; }
+        .page-row.selected .page-row-header { background: #e0f0ff; }
+
+        table { width: 100%; border-collapse: collapse; background: #fff; }
+        th, td { border: 1px solid #eee; padding: 8px 15px; text-align: left; font-size: 0.9em; }
+        th { background-color: #fafafa; color: #666; font-weight: 600; }
+        
+        .perm-badge { display: inline-block; padding: 2px 8px; border-radius: 12px; background: #eee; font-size: 0.8em; margin-right: 4px; }
+        .perm-FULL { background: #d4edda; color: #155724; }
+        .perm-NONE { background: #f8d7da; color: #721c24; }
+        .perm-READ { background: #cce5ff; color: #004085; }
+
+        .action-container { position: sticky; bottom: 20px; background: #fff; padding: 20px; border: 2px solid #007bff; border-radius: 8px; box-shadow: 0 -4px 10px rgba(0,0,0,0.1); margin-top: 20px; z-index: 100; }
+        .action-header { font-weight: bold; margin-bottom: 10px; color: #007bff; }
+        
+        .form-inline { display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap; }
+        .form-group { display: flex; flex-direction: column; gap: 5px; }
+        .form-group label { font-size: 0.8em; font-weight: bold; color: #666; }
+        
+        select, .btn-action { padding: 8px; border-radius: 4px; border: 1px solid #ccc; }
+        .btn-add { background: #007bff; color: #fff; border: none; font-weight: bold; cursor: pointer; }
+        .btn-add:disabled { background: #ccc; cursor: not-allowed; }
+        
+        .remove-btn { color: #c00; font-weight: bold; border: none; background: none; cursor: pointer; margin-left: 10px; font-size: 0.85em; }
+    </style>
+
+    <h1>{{ t.heading_permissions_maintenance }}</h1>
+
+    {% for pt_key, pages in grouped.items() %}
+    <div class="page-type-section">
+        <div class="page-type-header">{{ pt_key }}</div>
+        
+        {% for path, data in pages.items() %}
+        <div class="page-row" data-page-path="{{ path }}" data-page-label="{{ data.label }}">
+            <div class="page-row-header">
+                <span>{{ data.label }} <small style="color: #666; font-weight: normal; margin-left: 10px;">({{ path }})</small></span>
+                <span style="font-size: 0.8em; color: #999;">{{ t.msg_click_to_select or 'Click to select' }}</span>
+            </div>
+            
+            {% if data.subjects %}
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width: 30%;">{{ t.label_subject }}</th>
+                        <th>{{ t.label_permission_level }}</th>
+                        <th style="width: 100px;">{{ t.th_action }}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for s_key, s_data in data.subjects.items() %}
+                    <tr class="subject-row" data-subject-key="{{ s_key }}" data-page-path="{{ path }}">
+                        <td>
+                            {% if s_data.role %}
+                                <strong>{{ s_data.role.name }}</strong> (Role)
+                            {% else %}
+                                {{ s_data.user.username or s_data.user.email }} (User)
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% for p in s_data.permissions %}
+                                <span class="perm-badge perm-{{ p.level.value }}">{{ p.level.value }}</span>
+                            {% endfor %}
+                        </td>
+                        <td>
+                            <form action="/admin/permissions/delete-subject" method="post" style="display:inline;">
+                                <input type="hidden" name="page_path" value="{{ path }}">
+                                <input type="hidden" name="subject" value="{{ s_key }}">
+                                <button type="submit" class="remove-btn" onclick="return confirm('{{ t.msg_confirm_delete or 'Clear all permissions for this subject?' }}')">{{ t.btn_remove or 'Clear' }}</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+                <div style="padding: 15px; color: #999; font-style: italic; font-size: 0.9em;">
+                    {{ t.msg_no_permissions }}
+                </div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+    {% endfor %}
+
+    <!-- Sticky Action Bar for the selected page -->
+    <div class="action-container" id="permission-editor" style="display: none;">
+        <div class="action-header">
+            {{ t.label_target_page or 'Target Page' }}: <span id="selected-page-display"></span>
+        </div>
+        <form action="/admin/permissions/create" method="post" class="form-inline">
+            <input type="hidden" name="page_path" id="form-page-path">
+            
+            <div class="form-group">
+                <label>{{ t.label_subject }}</label>
+                <select name="subject" required>
+                    <optgroup label="Roles">
+                        {% for r in roles %}
+                        <option value="role:{{ r.id }}">{{ r.name }} (Role)</option>
+                        {% endfor %}
+                    </optgroup>
+                    <optgroup label="Users">
+                        {% for u in users %}
+                        <option value="user:{{ u.id }}">{{ u.username or u.email }} (User)</option>
+                        {% endfor %}
+                    </optgroup>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label>{{ t.label_permission_level }}</label>
+                <select name="level" required id="form-level">
+                    {% for level in permission_levels %}
+                    <option value="{{ level.value }}" {% if level.value == 'None' %}selected{% endif %}>{{ level.value }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <button type="submit" class="btn-action btn-add">{{ t.btn_add_permission }}</button>
+        </form>
+    </div>
+
+    <script src="/static/js/admin_permissions.js" type="module"></script>
+{% endblock %}

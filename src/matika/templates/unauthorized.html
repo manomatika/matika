@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+
+{% block title %}{{ t.heading_unauthorized }}{% endblock %}
+
+{% block content %}
+<div style="text-align: center; margin-top: 100px; padding: 40px; border: 1px solid #fcc; background-color: #fff5f5; border-radius: 8px; max-width: 600px; margin-left: auto; margin-right: auto;">
+    <h1 style="color: #c00;">{{ t.heading_unauthorized }}</h1>
+    <p style="font-size: 1.2em; margin-bottom: 20px;">{{ t.msg_unauthorized_body }}</p>
+    <p style="color: #666; margin-bottom: 40px;">{{ t.msg_contact_admin }}</p>
+    
+    <a href="/" class="btn-action" style="text-decoration: none; padding: 10px 20px; background-color: #000; color: #fff; border-radius: 4px;">{{ t.item_home }}</a>
+</div>
+{% endblock %}

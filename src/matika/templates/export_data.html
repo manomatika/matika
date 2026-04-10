@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% import "macros.html" as macros %}
+
+{% block title %}{{ heading }}{% endblock %}
+
+{% block content %}
+    {{ macros.export_form(action_url, heading, default_filename, categories, t) }}
+{% endblock %}

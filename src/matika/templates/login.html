@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>{{ t.heading_login }}</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="login-container">
+        <h1>{{ t.heading_login }}</h1>
+        
+        {% if error %}
+        <div style="background-color: #fee; color: #c00; padding: 10px; border-radius: 4px; margin-bottom: 20px; text-align: center; border: 1px solid #fcc;">
+            {{ error }}
+        </div>
+        {% endif %}
+
+        <form action="/login" method="post">
+            <label>{{ t.label_email }}</label>
+            <input type="text" name="email" required>
+            <label>{{ t.label_password }}</label>
+            <input type="password" name="password" required>
+            
+            <div style="margin-top: 15px; display: flex; align-items: center;">
+                <input type="checkbox" name="remember_me" id="remember_me" style="width: auto; margin-top: 0; margin-right: 10px;">
+                <label for="remember_me" style="display: inline; margin-top: 0;">{{ t.label_remember_me }}</label>
+            </div>
+
+            <button type="submit">{{ t.btn_login }}</button>
+        </form>
+        <div style="margin-top: 20px; text-align: center;">
+            <p>Or login with:</p>
+            <a href="/auth/login/google" style="margin-right: 10px;">Google</a>
+            <a href="/auth/login/github">GitHub</a>
+        </div>
+        <hr style="margin-top: 20px; border: 0.5px solid #eee;">
+        <p style="margin-top: 15px;">
+            <a href="/register" style="font-weight: bold;">{{ t.nav_register }}</a> | <a href="/forgot-password">{{ t.link_forgot_password }}</a>
+        </p>
+    </div>
+</body>
+</html>

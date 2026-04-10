@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    container_name: matika-app
+    restart: always
+    environment:
+      - DATABASE_URL=sqlite:///./data/matika.db
+      - SECRET_KEY=your-secure-random-key-here
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    # No port mapping needed for app; it's accessed via Nginx on the same network
+
+  nginx:
+    image: nginx:alpine
+    container_name: matika-nginx
+    restart: always
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      # Static files shared from app container (in production, they're in the image)
+      # For Docker Compose, we map them directly for serving.
+      - ./src/matika/static:/usr/share/nginx/html/static:ro
+    depends_on:
+      - app

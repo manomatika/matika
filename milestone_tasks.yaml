@@ -1,0 +1,9 @@
+milestone: "Milestone 9 - Validate and verify deployment of v1.0.6 release"
+branch: "feat/milestone-9-VandV"
+description: "Validate and verify deployment of v1.0.6 release"
+issues:
+  - title: "Release v1.0.6 bug fixes and improvements"
+    labels: ["feature", "milestone-9"]
+    description: |
+      Release v1.0.6 bug fixes and improvements:
+    
