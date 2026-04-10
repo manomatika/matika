@@ -71,7 +71,7 @@ def check_prerequisite(cmd, name):
 def main():
     start_time = datetime.now()
     logger.info("="*60)
-    logger.info("RATEEYE AUTOMATED INSTALLATION & DEPLOYMENT")
+    logger.info("MATIKA AUTOMATED INSTALLATION & DEPLOYMENT")
     logger.info("="*60)
     
     # 0. Sync Version

@@ -75,19 +75,6 @@ async def show_log(type: str = "app", db: Session = Depends(get_db)):
             return "".join(lines[-count:])
     return f"Log file not found: {path}"
 
-# Utility for routers to access the scraper/endpoint factory
-def get_security_endpoint(db: Session):
-    from .securities.endpoints import YahooScraperEndpoint, FinnhubEndpoint, AlphaVantageEndpoint
-    endpoint_type = get_system_setting(db, "security_data_endpoint", "yahoo")
-    api_key = get_system_setting(db, "security_data_api_key", "")
-    
-    if endpoint_type == "finnhub":
-        return FinnhubEndpoint(api_key=api_key)
-    elif endpoint_type == "alphavantage":
-        return AlphaVantageEndpoint(api_key=api_key)
-    else:
-        return YahooScraperEndpoint()
-
 if __name__ == "__main__":
     import uvicorn
     import webbrowser

@@ -28,7 +28,6 @@ def test_specific_page_types():
     routes_map = {
         "/admin/users": PageType.MAINTENANCE,
         "/admin/roles": PageType.MAINTENANCE,
-        "/admin/securities": PageType.MAINTENANCE,
         "/admin/permissions": PageType.MAINTENANCE,
         "/settings/user": PageType.SETTINGS,
         "/settings/system": PageType.SETTINGS,

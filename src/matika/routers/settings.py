@@ -11,7 +11,7 @@ from fastapi.templating import Jinja2Templates
 
 from ..i18n import get_text
 from ..core.paths import BASE_DIR
-from ..database import get_db, User, Security, Role, Permission, SystemSetting, PageType, get_system_setting
+from ..database import get_db, User, Role, Permission, SystemSetting, PageType, get_system_setting
 from ..auth.service import verify_password, get_password_hash
 from ..auth.dependencies import login_required
 from ..security.service import check_page_permission
@@ -37,10 +37,8 @@ async def export_data_page(request: Request, accept_language: str = Header(None)
     })
 
 @router.post("/export")
-async def export_data(filename: str = Form(...), include_securities: bool = Form(False), include_roles: bool = Form(False), user: User = Depends(check_page_permission), db: Session = Depends(get_db)):
+async def export_data(filename: str = Form(...), include_roles: bool = Form(False), user: User = Depends(check_page_permission), db: Session = Depends(get_db)):
     export_payload = {"metadata": {"type": "user_data", "version": get_system_setting(db, "version", "unknown"), "timestamp": datetime.now().isoformat(), "exported_by": user.email}}
-    if include_securities:
-        export_payload["securities"] = [{"symbol": s.symbol, "name": s.name, "security_type": s.security_type, "asset_class": s.asset_class, "current_price": s.current_price, "yield_30_day": s.yield_30_day, "yield_7_day": s.yield_7_day} for s in db.query(Security).all()]
     if include_roles:
         export_payload["roles"] = [{"name": r.name, "description": r.description, "is_system": False, "permissions": [{"path": p.page_path, "type": p.page_type, "level": p.level} for p in r.permissions]} for r in db.query(Role).filter(Role.is_system == False).all()]
     if not filename.endswith(".json"): filename += ".json"
@@ -56,16 +54,10 @@ async def import_data_page(request: Request, accept_language: str = Header(None)
     })
 
 @router.post("/import")
-async def import_data(file: UploadFile = File(...), include_securities: bool = Form(False), include_roles: bool = Form(False), user: User = Depends(check_page_permission), db: Session = Depends(get_db)):
+async def import_data(file: UploadFile = File(...), include_roles: bool = Form(False), user: User = Depends(check_page_permission), db: Session = Depends(get_db)):
     try:
         data = json.loads(await file.read())
         if data.get("metadata", {}).get("type") != "user_data": raise Exception("Invalid file type")
-        if include_securities and "securities" in data:
-            for s in data["securities"]:
-                existing = db.query(Security).filter(Security.symbol == s["symbol"]).first()
-                if not existing: db.add(Security(**s))
-                else:
-                    for k, v in s.items(): setattr(existing, k, v)
         if include_roles and "roles" in data:
             for r in data["roles"]:
                 existing = db.query(Role).filter(Role.name == r["name"]).first()
@@ -88,8 +80,6 @@ async def system_settings_page(request: Request, accept_language: str = Header(N
         "startup_log_retention": get_system_setting(db, "startup_log_retention", "10"),
         "test_log_lines": get_system_setting(db, "test_log_lines", "100"),
         "test_log_retention": get_system_setting(db, "test_log_retention", "10"),
-        "active_endpoint": get_system_setting(db, "security_data_endpoint", "yahoo"),
-        "active_key": get_system_setting(db, "security_data_api_key", "")
     })
 
 @router.post("/system")
@@ -97,14 +87,12 @@ async def save_system_settings(
     app_log_lines: str = Form("100"), app_log_retention: str = Form("10"),
     startup_log_lines: str = Form("100"), startup_log_retention: str = Form("10"),
     test_log_lines: str = Form("100"), test_log_retention: str = Form("10"),
-    security_data_endpoint: str = Form("yahoo"), api_key: str = Form(""), 
     user: User = Depends(login_required), db: Session = Depends(get_db)
 ):
     settings = {
         "app_log_lines": app_log_lines, "app_log_retention": app_log_retention,
         "startup_log_lines": startup_log_lines, "startup_log_retention": startup_log_retention,
         "test_log_lines": test_log_lines, "test_log_retention": test_log_retention,
-        "security_data_endpoint": security_data_endpoint, "security_data_api_key": api_key
     }
     for n, v in settings.items():
         s = db.query(SystemSetting).filter(SystemSetting.name == n).first()

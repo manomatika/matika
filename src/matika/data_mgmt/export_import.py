@@ -19,7 +19,6 @@ def get_activity_categories(db: Session, context: str, t: dict):
         categories.append({"id": "roles", "name": "include_roles", "label": t.get("label_include_roles", "Custom Roles")})
     else: # system_data
         categories.append({"id": "logging", "name": "include_logging", "label": t.get("label_include_logging", "Logging")})
-        categories.append({"id": "endpoints", "name": "include_endpoints", "label": t.get("label_include_endpoints", "Endpoints")})
         categories.append({"id": "system_roles", "name": "include_system_roles", "label": t.get("label_include_system_roles", "System Roles")})
 
     # 2. Scan activity metadata

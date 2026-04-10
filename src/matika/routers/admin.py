@@ -13,9 +13,10 @@ from pydantic import BaseModel
 from ..i18n import get_text
 from ..core.paths import BASE_DIR
 from ..database import (
-    get_db, User, Security, Role, Permission, SystemSetting, PageType, 
-    PermissionLevel, get_pages, SecurityType, AssetClass, get_system_setting
+    get_db, User, Role, Permission, SystemSetting, PageType,
+    PermissionLevel, get_pages, get_system_setting
 )
+
 from ..core.utils import load_metadata
 from ..core.logging_config import ACTIVE_LOG, STARTUP_LOG, LOG_DIR
 from ..auth.service import get_password_hash
@@ -90,87 +91,6 @@ async def delete_role(role_id: int, db: Session = Depends(get_db)):
     role = db.query(Role).filter(Role.id == role_id).first()
     if role and role.name not in ["Admin", "User"]: db.delete(role); db.commit()
     return RedirectResponse(url="/admin/roles", status_code=303)
-
-# --- SECURITY MAINTENANCE ---
-@router.get("/securities", response_class=HTMLResponse)
-async def list_securities(request: Request, accept_language: str = Header(None), user: User = Depends(check_page_permission), db: Session = Depends(get_db)):
-    t = get_text(accept_language)
-    return templates.TemplateResponse(request, "admin_securities.html", {
-        "t": t, "title": t.get("item_securities"), "user": user, "securities": db.query(Security).all(),
-        "security_types": list(SecurityType), "asset_classes": list(AssetClass), "metadata": load_metadata("securities", Security)
-    })
-
-@router.post("/securities/create")
-async def create_security(symbol: str = Form(...), name: str = Form(...), security_type: SecurityType = Form(...), asset_class: Optional[AssetClass] = Form(None), previous_close: Optional[str] = Form(None), open_price: Optional[str] = Form(None), current_price: Optional[str] = Form(None), nav: Optional[str] = Form(None), range_52_week: Optional[str] = Form(None), avg_volume: Optional[str] = Form(None), yield_30_day: Optional[str] = Form(None), yield_7_day: Optional[str] = Form(None), db: Session = Depends(get_db)):
-    if db.query(Security).filter(Security.symbol == symbol.upper()).first(): raise HTTPException(status_code=400, detail="already exists")
-    db.add(Security(symbol=symbol.upper(), name=name, security_type=security_type, asset_class=asset_class, previous_close=previous_close, open_price=open_price, current_price=current_price, nav=nav, range_52_week=range_52_week, avg_volume=avg_volume, yield_30_day=yield_30_day, yield_7_day=yield_7_day))
-    db.commit(); return RedirectResponse(url="/admin/securities", status_code=303)
-
-@router.post("/securities/update/{sec_id}")
-async def update_security(sec_id: int, symbol: str = Form(...), name: str = Form(...), security_type: SecurityType = Form(...), asset_class: Optional[AssetClass] = Form(None), previous_close: Optional[str] = Form(None), open_price: Optional[str] = Form(None), current_price: Optional[str] = Form(None), nav: Optional[str] = Form(None), range_52_week: Optional[str] = Form(None), avg_volume: Optional[str] = Form(None), yield_30_day: Optional[str] = Form(None), yield_7_day: Optional[str] = Form(None), db: Session = Depends(get_db)):
-    sec = db.query(Security).filter(Security.id == sec_id).first()
-    if sec:
-        sec.symbol = symbol; sec.name = name; sec.security_type = security_type; sec.asset_class = asset_class
-        sec.previous_close = previous_close; sec.open_price = open_price; sec.current_price = current_price
-        sec.nav = nav; sec.range_52_week = range_52_week; sec.avg_volume = avg_volume
-        sec.yield_30_day = yield_30_day; sec.yield_7_day = yield_7_day; db.commit()
-    return RedirectResponse(url="/admin/securities", status_code=303)
-
-@router.post("/securities/delete/{sec_id}")
-async def delete_security(sec_id: int, db: Session = Depends(get_db)):
-    sec = db.query(Security).filter(Security.id == sec_id).first()
-    if sec: db.delete(sec); db.commit()
-    return RedirectResponse(url="/admin/securities", status_code=303)
-
-# --- SECURITY ENDPOINTS & BULK ---
-@router.get("/securities/search")
-async def search_securities(q: str, db: Session = Depends(get_db)):
-    from ..main import get_security_endpoint
-    return await get_security_endpoint(db).search(q)
-
-@router.get("/securities/lookup")
-async def lookup_security(symbol: str, db: Session = Depends(get_db)):
-    from ..main import get_security_endpoint
-    data = await get_security_endpoint(db).lookup(symbol)
-    if not data: raise HTTPException(status_code=404, detail="Not found")
-    return data
-
-class BulkCreateRequest(BaseModel): symbols: List[str]
-@router.post("/securities/bulk_create")
-async def bulk_create_securities(request: BulkCreateRequest, db: Session = Depends(get_db)):
-    from ..main import get_security_endpoint
-    ep = get_security_endpoint(db); added = []; errors = []
-    for s in request.symbols:
-        s = s.upper().strip()
-        if not s: continue
-        if db.query(Security).filter(Security.symbol == s).first():
-            errors.append(f"{s} already exists")
-            continue
-        try:
-            d = await ep.lookup(s)
-            if d:
-                db.add(Security(symbol=s, name=d.get("name", s), security_type=d.get("security_type", SecurityType.STOCK), asset_class=d.get("asset_class"), current_price=d.get("current_price"), previous_close=d.get("previous_close"), open_price=d.get("open_price"), nav=d.get("nav"), range_52_week=d.get("range_52_week"), avg_volume=d.get("avg_volume"), yield_30_day=d.get("yield_30_day"), yield_7_day=d.get("yield_7_day")))
-                added.append(s)
-            else: errors.append(f"{s} not found")
-        except Exception as e: errors.append(f"Error {s}: {e}")
-    db.commit(); return {"added": added, "errors": errors}
-
-class BulkDeleteRequest(BaseModel): symbols: List[str]
-@router.post("/securities/bulk_delete")
-async def bulk_delete_securities(request: BulkDeleteRequest, db: Session = Depends(get_db)):
-    c = db.query(Security).filter(Security.symbol.in_([s.upper().strip() for s in request.symbols])).delete(synchronize_session=False)
-    db.commit(); return {"deleted": c}
-
-@router.post("/securities/test_endpoint")
-async def test_security_endpoint(endpoint: str = Form(...), api_key: Optional[str] = Form(None)):
-    from ..securities.endpoints import YahooScraperEndpoint, FinnhubEndpoint, AlphaVantageEndpoint
-    try:
-        if endpoint == "finnhub": ep = FinnhubEndpoint(api_key=api_key or "")
-        elif endpoint == "alphavantage": ep = AlphaVantageEndpoint(api_key=api_key or "")
-        else: ep = YahooScraperEndpoint()
-        d = await ep.lookup("VOO")
-        return {"success": True} if d and d.get("symbol") == "VOO" else {"success": False, "error": "No data"}
-    except Exception as e: return {"success": False, "error": str(e)}
 
 # --- SYSTEM IMPORT/EXPORT ---
 @router.get("/settings/export", response_class=HTMLResponse)

@@ -1,5 +1,5 @@
 ================================================================================
-RATEEYE INSTALLATION GUIDE
+MATIKA INSTALLATION GUIDE
 ================================================================================
 
 Thank you for choosing Matika! This guide will help you get the application 

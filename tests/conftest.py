@@ -11,7 +11,7 @@ if os.name == 'nt':
 else:
     os.environ["DATABASE_URL"] = f"sqlite:////{test_db_path.lstrip('/')}"
 
-from matika.database import Base, get_db, User, UserSetting, SystemSetting, Role, pwd_context, user_roles, Security
+from matika.database import Base, get_db, User, UserSetting, SystemSetting, Role, pwd_context, user_roles
 from matika.main import app
 
 # Test database setup
@@ -51,7 +51,6 @@ def db():
     from matika.database import init_db, Permission
     session.execute(user_roles.delete())
     session.query(User).delete()
-    session.query(Security).delete()
     session.query(Permission).delete()
     session.commit()
 

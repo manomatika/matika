@@ -16,7 +16,7 @@ def test_seeding_defaults(db):
         assert p.level == PermissionLevel.FULL
 
     # Issue 4: User role gets NONE for admin menu pages, FULL for others
-    admin_menu_pages = ["/admin/roles", "/admin/permissions", "/admin/users", "/settings/system", "/admin/securities", "/admin/settings/export", "/admin/settings/import"]
+    admin_menu_pages = ["/admin/roles", "/admin/permissions", "/admin/users", "/settings/system", "/admin/settings/export", "/admin/settings/import"]
     user_perms = db.query(Permission).filter(Permission.role_id == user_role.id).all()
     for p in user_perms:
         if p.page_path in admin_menu_pages:

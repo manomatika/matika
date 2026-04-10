@@ -19,7 +19,7 @@
 
         <div class="menu-item">{{ t.menu_activities or 'Activities' }}
             <div class="dropdown">
-                <div data-href="/admin/securities">{{ t.item_securities or 'Securities' }}</div>
+                <!-- AppLugs will inject items here -->
             </div>
         </div>
 {% if user and 'Admin' in user.roles | map(attribute='name') %}

@@ -37,7 +37,7 @@ def main():
     issues = config.get("issues", [])
 
     print("\n" + "="*50)
-    print("   RATEEYE MILESTONE: ARCHITECT START PLAN")
+    print("   MATIKA MILESTONE: ARCHITECT START PLAN")
     print("="*50)
     print(f"Repository: {repo_name}")
     print(f"Milestone:  {milestone_name}")

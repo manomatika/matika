@@ -113,7 +113,7 @@ def main():
                 print("Invalid selection.")
 
     print("\n" + "="*50)
-    print("   RATEEYE RELEASE: ARCHITECT PLAN OF ACTION")
+    print("   MATIKA RELEASE: ARCHITECT PLAN OF ACTION")
     print("="*50)
     print(f"Repository:       {repo_name}")
     print(f"Current Branch:   {current_branch}")

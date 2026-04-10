@@ -1,7 +1,7 @@
 import pytest
 import json
 from io import BytesIO
-from matika.database import Security, Role, Permission, init_db, SystemSetting, PermissionLevel, PageType
+from matika.database import Role, Permission, init_db, SystemSetting, PermissionLevel, PageType
 
 def test_export_data_page(client, test_admin, db):
     client.post("/login", data={"email": test_admin.email, "password": "adminpassword"})
@@ -12,23 +12,17 @@ def test_export_data_page(client, test_admin, db):
 def test_export_data_filtered(client, test_admin, db):
     client.post("/login", data={"email": test_admin.email, "password": "adminpassword"})
     
-    # Add some user data
-    db.add(Security(symbol="TEST_EXP", name="Test Export", security_type="Stock"))
-    db.commit()
-    
-    # Test exporting ONLY securities
+    # Test exporting ONLY roles
     data = {
-        "filename": "only_secs.json",
-        "include_securities": "on",
-        "include_roles": ""
+        "filename": "only_roles.json",
+        "include_roles": "on"
     }
     response = client.post("/settings/export", data=data)
     assert response.status_code == 200
     payload = response.json()
     
-    assert "securities" in payload
-    assert any(s["symbol"] == "TEST_EXP" for s in payload["securities"])
-    assert "roles" not in payload
+    assert "roles" in payload
+    assert "securities" not in payload
     assert "system_settings" not in payload
 
 def test_import_data_filtered(client, test_admin, db):
@@ -36,13 +30,10 @@ def test_import_data_filtered(client, test_admin, db):
     
     export_payload = {
         "metadata": {"type": "user_data"},
-        "securities": [
-            {"symbol": "IMP_FILTER", "name": "Imported Filtered", "security_type": "ETF"}
-        ],
         "roles": [
             {
-                "name": "ShouldNotBeImported",
-                "description": "Fail",
+                "name": "ImportedRole",
+                "description": "Success",
                 "permissions": []
             }
         ]
@@ -51,22 +42,17 @@ def test_import_data_filtered(client, test_admin, db):
     file_content = json.dumps(export_payload).encode("utf-8")
     files = {"file": ("test_import.json", BytesIO(file_content), "application/json")}
     
-    # Import ONLY securities
+    # Import ONLY roles
     data = {
-        "include_securities": "on",
-        "include_roles": ""
+        "include_roles": "on"
     }
     
     response = client.post("/settings/import", files=files, data=data, follow_redirects=True)
     assert response.status_code == 200
     
-    # Verify Security is there
-    sec = db.query(Security).filter(Security.symbol == "IMP_FILTER").first()
-    assert sec is not None
-    
-    # Verify Role is NOT there
-    role = db.query(Role).filter(Role.name == "ShouldNotBeImported").first()
-    assert role is None
+    # Verify Role is there
+    role = db.query(Role).filter(Role.name == "ImportedRole").first()
+    assert role is not None
 
 def test_system_export_import(client, test_admin, db):
     client.post("/login", data={"email": test_admin.email, "password": "adminpassword"})
@@ -79,8 +65,7 @@ def test_system_export_import(client, test_admin, db):
     # 2. Test Export POST
     data = {
         "filename": "sys_test.json",
-        "include_logging": "on",
-        "include_endpoints": "on"
+        "include_logging": "on"
     }
     resp = client.post("/admin/settings/export", data=data)
     assert resp.status_code == 200
@@ -93,8 +78,7 @@ def test_system_export_import(client, test_admin, db):
     files = {"file": ("sys_import.json", BytesIO(file_content), "application/json")}
     
     import_data = {
-        "include_logging": "on",
-        "include_endpoints": "on"
+        "include_logging": "on"
     }
     resp = client.post("/admin/settings/import", files=files, data=import_data, follow_redirects=True)
     assert resp.status_code == 200

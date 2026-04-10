@@ -11,7 +11,6 @@ Matika is a high-performance yield tracking and security maintenance application
 - **Backend:** [FastAPI](https://fastapi.tiangolo.com/) (Python 3.14+)
 - **Database:** [SQLite](https://sqlite.org/) with [SQLAlchemy](https://www.sqlalchemy.org/) ORM
 - **Frontend:** [Jinja2](https://palletsprojects.com/p/jinja/) Templates, [TypeScript](https://www.typescriptlang.org/) (ESNext), Vanilla CSS
-- **Data Fetching:** `yfinance`, `curl_cffi` (impersonation), and various REST APIs
 - **Tooling:** `npm` for TypeScript compilation, `pytest` for unit testing
 
 ## 3. Folder Structure (Best Practices)
@@ -52,8 +51,6 @@ Administrative pages follow a standardized pattern for consistency and rapid dev
 - **`MaintenanceActivityManager` (TS):** Base class for handling CRUD lifecycle events via AJAX.
 - **Title Panel (TP):** Split into a Label Panel (LP) and a Button Bar Panel (BBP) for centralized actions.
 
-### 4.2. Security Data Provider Strategy
-...
 ## 6. Scalability & Distributed Architecture
 
 While Matika is designed as a streamlined monolith, it follows cloud-native principles that allow it to scale from a single-node local setup to a distributed, high-availability environment.
@@ -100,7 +97,6 @@ Matika distinguishes between **System Data** (distributed with the application) 
 - **User Data (`is_system=False`):**
     - **Users:** Account information for all registered users.
     - **User Settings:** Personalizations like profile photos and language preferences.
-    - **Securities:** The master list of tickers, names, and yields managed by the user.
     - **Custom Roles/Permissions:** Any additional access control entities defined by an administrator.
     - *Purpose:* Holds the personalized data and configuration that makes the application useful for a specific user or organization.
 
@@ -115,7 +111,6 @@ erDiagram
     User }|..|{ Role : belongs_to
     Role ||--o{ Permission : grants
     User ||--o{ Permission : has_custom
-    Security ||--o{ Security : managed_by_user
     SystemSetting ||--o| App : configures
 
     User {
@@ -144,21 +139,6 @@ erDiagram
         int user_id FK
         string level
         bool is_system
-    }
-    Security {
-        int id PK
-        string symbol UK
-        string name
-        string security_type
-        string asset_class
-        string current_price
-        string previous_close
-        string open_price
-        string nav
-        string range_52_week
-        string avg_volume
-        string yield_30_day
-        string yield_7_day
     }
     SystemSetting {
         string name PK
