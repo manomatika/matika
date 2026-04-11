@@ -39,14 +39,21 @@ class AppLugService:
             plugin_path = os.path.join(self.plugins_dir, plugin_name)
             if not os.path.isdir(plugin_path):
                 continue
+            
+            # Use realpath for symlinks
+            real_plugin_path = os.path.realpath(plugin_path)
                 
-            manifest_file = os.path.join(plugin_path, "applug.json")
+            manifest_file = os.path.join(real_plugin_path, "applug.json")
             if not os.path.exists(manifest_file):
                 continue
                 
             try:
                 with open(manifest_file, "r") as f:
                     manifest = json.load(f)
+                
+                plugin_id = manifest.get("id")
+                if plugin_id in self.loaded_plugins:
+                    continue # Already loaded
                 
                 # Load the entry point class
                 entry_point = manifest.get("entry_point")
@@ -55,12 +62,12 @@ class AppLugService:
                     continue
                 
                 # Import the plugin class dynamically
-                module_path, class_name = entry_point.rsplit(":", 1)
+                module_path, class_name = entry_point.rsplit(".", 1)
                 
-                # Ensure the plugin directory is in sys.path
+                # Ensure the plugin source directory is in sys.path
                 import sys
-                if plugin_path not in sys.path:
-                    sys.path.insert(0, plugin_path)
+                if real_plugin_path not in sys.path:
+                    sys.path.insert(0, real_plugin_path)
                     
                 module = importlib.import_module(module_path)
                 plugin_class = getattr(module, class_name)
@@ -79,6 +86,8 @@ class AppLugService:
                 
             except Exception as e:
                 logger.error(f"Failed to load plugin {plugin_name}: {e}")
+                import traceback
+                logger.error(traceback.format_exc())
                 
         return list(self.loaded_plugins.values())
 

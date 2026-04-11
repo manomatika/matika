@@ -18,10 +18,20 @@ from .core.logging_config import (
 from .core.utils import format_num
 from .auth.service import setup_oauth
 from .routers import public, settings, admin
+from .core.applug_service import AppLugService
 
 # Environment & Testing Check
 IS_TESTING = "pytest" in os.environ.get("PYTEST_CURRENT_TEST", "") or "PYTEST_VERSION" in os.environ
 SECRET_KEY = os.environ.get("SECRET_KEY", "a-very-secret-key-for-development")
+
+# Initialize plugin service
+app_lug_service = AppLugService()
+
+def init_plugins(db: Session):
+    """Discovers and registers plugins into the FastAPI app."""
+    plugins = app_lug_service.discover(db)
+    for plugin in plugins:
+        app.include_router(plugin.get_router())
 
 # --- 1. LOGGING & INITIALIZATION ---
 setup_startup_logging(IS_TESTING)
@@ -33,9 +43,15 @@ if not IS_TESTING:
     logger.info("Initializing database...")
     db_session = SessionLocal()
     init_db(db_session)
+    # Discover and Load Plugins
+    init_plugins(db_session)
     cleanup_logs(db_session, IS_TESTING)
     db_session.close()
     finalize_logging(IS_TESTING)
+else:
+    # During testing, we might need a separate discovery trigger
+    # but for now we let tests handle it or call it here with a test session if needed.
+    pass
 
 # --- 2. APP SETUP ---
 app = FastAPI(title="Matika")
@@ -45,6 +61,20 @@ app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY, max_age=86400)
 app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "src", "matika", "static")), name="static")
 templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "src", "matika", "templates"))
 templates.env.filters["format_num"] = format_num
+
+# Context Processors for Templates
+@app.middleware("http")
+async def add_app_lug_context(request: Request, call_next):
+    # This might be cleaner than context_processors if we want it global
+    # and easy to access in all templates.
+    response = await call_next(request)
+    return response
+
+# Standard Jinja2 context processor
+def plugin_context(request: Request):
+    return {"plugin_menu_items": app_lug_service.get_all_menu_items()}
+
+templates.context_processors.append(plugin_context)
 
 # Exception Handlers
 @app.exception_handler(403)

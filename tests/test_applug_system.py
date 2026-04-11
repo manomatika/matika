@@ -32,7 +32,7 @@ def mock_plugin(plugin_dir):
     manifest = {
         "id": "test_plugin",
         "version": "1.0.0",
-        "entry_point": "plugin:MockPlugin",
+        "entry_point": "plugin.MockPlugin",
         "permissions": [
             {
                 "page_path": "/test/plugin/page",
