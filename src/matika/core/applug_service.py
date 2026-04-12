@@ -16,12 +16,14 @@ class AppLugService:
     Scans ~/Matika/plugins/ for applug.json manifests.
     """
     
-    def __init__(self, plugins_dir: Optional[str] = None):
+    def __init__(self, plugins_dir: Optional[str] = None, templates: Optional[Any] = None, app: Optional[Any] = None):
         if plugins_dir is None:
             self.plugins_dir = os.path.join(ROOT_DIR, "plugins")
         else:
             self.plugins_dir = plugins_dir
         
+        self.templates = templates
+        self.app = app # The FastAPI app instance
         # In-memory storage of loaded plugins
         self.loaded_plugins: Dict[str, BaseAppLug] = {}
         
@@ -32,48 +34,67 @@ class AppLugService:
         """
         Scans for plugins and attempts to load them.
         """
-        logger.info(f"Scanning for plugins in {self.plugins_dir}...")
+        # Resolve plugins_dir at runtime if it was initialized with default
+        from .paths import ROOT_DIR
+        actual_plugins_dir = self.plugins_dir if self.plugins_dir else os.path.join(ROOT_DIR, "plugins")
         
+        print(f"DEBUG: AppLugService.discover scanning {actual_plugins_dir}")
+        logger.info(f"Scanning for plugins in {actual_plugins_dir}...")
+        
+        if not os.path.exists(actual_plugins_dir):
+            print(f"DEBUG: plugins_dir does NOT exist: {actual_plugins_dir}")
+            return []
+
+        print(f"DEBUG: plugins_dir exists. Contents: {os.listdir(actual_plugins_dir)}")
+
         # For each subdirectory in plugins
-        for plugin_name in os.listdir(self.plugins_dir):
-            plugin_path = os.path.join(self.plugins_dir, plugin_name)
-            if not os.path.isdir(plugin_path):
-                continue
+        for plugin_name in os.listdir(actual_plugins_dir):
+            plugin_path = os.path.join(actual_plugins_dir, plugin_name)
+            print(f"DEBUG: Checking entry: {plugin_name} at {plugin_path}")
             
-            # Use realpath for symlinks
-            real_plugin_path = os.path.realpath(plugin_path)
-                
-            manifest_file = os.path.join(real_plugin_path, "applug.json")
-            if not os.path.exists(manifest_file):
+            if not os.path.isdir(plugin_path):
+                print(f"DEBUG: {plugin_name} is not a directory.")
                 continue
                 
+            manifest_file = os.path.join(plugin_path, "applug.json")
+            if not os.path.exists(manifest_file):
+                print(f"DEBUG: {manifest_file} does not exist.")
+                continue
+                
+            print(f"DEBUG: Found manifest at {manifest_file}")
             try:
                 with open(manifest_file, "r") as f:
                     manifest = json.load(f)
                 
                 plugin_id = manifest.get("id")
-                if plugin_id in self.loaded_plugins:
-                    continue # Already loaded
+                print(f"DEBUG: Processing plugin {plugin_id}")
                 
                 # Load the entry point class
                 entry_point = manifest.get("entry_point")
+                print(f"DEBUG: entry_point={entry_point}")
                 if not entry_point:
                     logger.error(f"Plugin {plugin_name} is missing 'entry_point' in manifest.")
                     continue
                 
                 # Import the plugin class dynamically
                 module_path, class_name = entry_point.rsplit(".", 1)
+                print(f"DEBUG: module_path={module_path}, class_name={class_name}")
                 
                 # Ensure the plugin source directory is in sys.path
                 import sys
-                if real_plugin_path not in sys.path:
-                    sys.path.insert(0, real_plugin_path)
+                if plugin_path not in sys.path:
+                    print(f"DEBUG: adding {plugin_path} to sys.path")
+                    sys.path.insert(0, plugin_path)
                     
                 module = importlib.import_module(module_path)
+                print(f"DEBUG: module loaded: {module}")
+                
                 plugin_class = getattr(module, class_name)
+                print(f"DEBUG: plugin_class: {plugin_class}")
                 
                 # Instantiate and store
                 plugin_instance = plugin_class(manifest)
+                plugin_instance.templates = self.templates
                 self.loaded_plugins[plugin_instance.id] = plugin_instance
                 
                 # Run standard registration logic (Roles, Permissions, Menu)
@@ -81,6 +102,10 @@ class AppLugService:
                 
                 # Fire the on_load hook
                 plugin_instance.on_load(db)
+                
+                # Register the plugin's router into the FastAPI app if provided
+                if self.app:
+                    self.app.include_router(plugin_instance.get_router())
                 
                 logger.info(f"Successfully loaded plugin: [PLUGIN:{plugin_instance.id}] v{plugin_instance.version}")
                 
@@ -125,8 +150,12 @@ class AppLugService:
                         page_type=getattr(PageType, ptype.upper(), PageType.MAINTENANCE),
                         role_id=role.id,
                         level=level,
-                        is_system=True # Plugin permissions are treated as framework-provisioned
+                        is_system=True
                     ))
+                else:
+                    # Sync level if it differs
+                    if existing_perm.level != level:
+                        existing_perm.level = level
         
         db.commit()
 

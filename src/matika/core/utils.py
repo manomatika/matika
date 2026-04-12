@@ -7,9 +7,10 @@ from .paths import BASE_DIR
 
 logger = logging.getLogger(__name__)
 
-def load_metadata(activity_name: str, model_class=None) -> dict:
+def load_metadata(activity_name: str, model_class=None, metadata_dir=None) -> dict:
     """Loads metadata for a maintenance activity."""
-    metadata_dir = os.path.join(BASE_DIR, "src", "matika", "metadata")
+    if metadata_dir is None:
+        metadata_dir = os.path.join(BASE_DIR, "src", "matika", "metadata")
     paths = [
         os.path.join(metadata_dir, f"{activity_name}_maint_activity_metadata.json"),
         os.path.join(metadata_dir, f"{activity_name}.json")

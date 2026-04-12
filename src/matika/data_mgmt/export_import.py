@@ -5,15 +5,16 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 from ..database import get_system_setting
 
-logger = logging.getLogger(__name__)
-BASE_DIR = os.path.dirname(os.path.dirname(__file__))
+from ..core import paths
 
-def get_activity_categories(db: Session, context: str, t: dict):
+logger = logging.getLogger(__name__)
+
+def get_activity_categories(db: Session, context: str, t: dict) -> list:
     """
-    Scans all activity metadata to find categories supported for export/import.
-    context: 'user_data' or 'system_data'
+    Returns categories for export/import based on core needs and activity metadata.
     """
     categories = []
+
     # 1. Add core categories based on context
     if context == "user_data":
         categories.append({"id": "roles", "name": "include_roles", "label": t.get("label_include_roles", "Custom Roles")})
@@ -22,10 +23,11 @@ def get_activity_categories(db: Session, context: str, t: dict):
         categories.append({"id": "system_roles", "name": "include_system_roles", "label": t.get("label_include_system_roles", "System Roles")})
 
     # 2. Scan activity metadata
-    metadata_dir = os.path.join(BASE_DIR, "metadata")
+    metadata_dir = os.path.join(paths.BASE_DIR, "src", "matika", "metadata")
     if os.path.exists(metadata_dir):
         for filename in os.listdir(metadata_dir):
-            if filename.endswith(".json"):
+            if filename.endswith("_maint_activity_metadata.json"):
+
                 try:
                     with open(os.path.join(metadata_dir, filename), "r") as f:
                         meta = json.load(f)

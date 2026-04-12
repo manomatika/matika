@@ -120,3 +120,46 @@ def test_resilience_to_missing_entry_point(plugin_dir, db):
     # Should log error but not crash
     plugins = service.discover(db)
     assert len(plugins) == 0
+
+def test_plugin_localization_merging(plugin_dir, db):
+    # 1. Create a plugin with a locale file
+    p_path = os.path.join(plugin_dir, "loc_plugin")
+    loc_dir = os.path.join(p_path, "src", "loc_plugin", "locales")
+    os.makedirs(loc_dir)
+    
+    # Create manifest
+    manifest = {"id": "loc_plugin", "version": "1.0", "entry_point": "plugin.MockPlugin"}
+    with open(os.path.join(p_path, "applug.json"), "w") as f:
+        json.dump(manifest, f)
+        
+    # Create locale override
+    with open(os.path.join(loc_dir, "en.json"), "w") as f:
+        json.dump({"plugin_custom_key": "Plugin Value", "item_home": "Home Override"}, f)
+        
+    # 2. Trigger i18n load
+    from matika.i18n import I18nService
+    i18n = I18nService()
+    
+    # Use a mock ROOT_DIR
+    import matika.i18n
+    from pathlib import Path
+    original_root = matika.i18n.ROOT_DIR
+    matika.i18n.ROOT_DIR = str(Path(plugin_dir).parent) # The tmp_path
+    
+    data = i18n.load_language("en")
+    assert data is not None
+    assert data["plugin_custom_key"] == "Plugin Value"
+    assert data["item_home"] == "Home Override"
+    
+    # Cleanup
+    matika.i18n.ROOT_DIR = original_root
+
+def test_plugin_on_unload(plugin_dir, mock_plugin, db):
+    service = AppLugService(plugins_dir=plugin_dir)
+    plugins = service.discover(db)
+    plugin = plugins[0]
+    
+    # Currently on_unload is not called by the service automatically
+    # but we can verify the method exists and works
+    plugin.on_unload(db)
+    assert plugin.unloaded is True

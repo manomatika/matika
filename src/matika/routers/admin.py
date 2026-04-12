@@ -3,21 +3,17 @@ import json
 import logging
 import shutil
 from datetime import datetime
-from typing import Optional, List
-from fastapi import APIRouter, Request, Form, Header, Depends, File, UploadFile, HTTPException
+from typing import List, Optional
+from fastapi import APIRouter, Depends, HTTPException, Request, Form, Header, File, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from sqlalchemy.orm import Session
-from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
-from ..i18n import get_text
 from ..core.paths import BASE_DIR
 from ..database import (
     get_db, User, Role, Permission, SystemSetting, PageType,
     PermissionLevel, get_pages, get_system_setting
 )
-
-from ..core.utils import load_metadata
 from ..core.logging_config import ACTIVE_LOG, STARTUP_LOG, LOG_DIR
 from ..auth.service import get_password_hash
 from ..auth.dependencies import login_required
@@ -25,113 +21,73 @@ from ..security.service import check_page_permission
 from ..data_mgmt.export_import import get_activity_categories
 
 router = APIRouter(prefix="/admin", tags=[PageType.MAINTENANCE])
-templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "src", "matika", "templates"))
 logger = logging.getLogger(__name__)
-
-# --- USER MAINTENANCE ---
-@router.get("/users", response_class=HTMLResponse)
-async def list_users(request: Request, accept_language: str = Header(None), user: User = Depends(check_page_permission), db: Session = Depends(get_db)):
-    t = get_text(accept_language)
-    return templates.TemplateResponse(request, "admin_users.html", {"t": t, "users": db.query(User).all(), "user": user})
-
-@router.post("/users/create")
-async def create_user(username: str = Form(...), email: str = Form(...), db: Session = Depends(get_db)):
-    nu = User(username=username, email=email, hashed_password=get_password_hash(username), is_authorized=True, force_password_change=True)
-    ur = db.query(Role).filter(Role.name == "User").first()
-    if ur: nu.roles.append(ur)
-    db.add(nu); db.commit(); return RedirectResponse(url="/admin/users", status_code=303)
-
-@router.post("/users/update/{user_id}")
-async def update_user(user_id: int, email: str = Form(...), force_password_change: bool = Form(False), db: Session = Depends(get_db)):
-    target_user = db.query(User).filter(User.id == user_id).first()
-    if target_user:
-        existing = db.query(User).filter(User.email == email, User.id != user_id).first()
-        if not existing:
-            target_user.email = email; target_user.force_password_change = force_password_change; db.commit()
-    return RedirectResponse(url="/admin/users", status_code=303)
-
-@router.post("/users/delete/{user_id}")
-async def delete_user(user_id: int, user: User = Depends(login_required), db: Session = Depends(get_db)):
-    if user.id == user_id: raise HTTPException(status_code=400, detail="Cannot delete yourself.")
-    tu = db.query(User).filter(User.id == user_id).first()
-    if tu: tu.roles = []; db.delete(tu); db.commit()
-    return RedirectResponse(url="/admin/users", status_code=303)
-
-@router.post("/users/force-password-change/{user_id}")
-async def force_password_change(user_id: int, db: Session = Depends(get_db)):
-    target_user = db.query(User).filter(User.id == user_id).first()
-    if target_user:
-        target_user.force_password_change = True
-        db.commit()
-    return RedirectResponse(url="/admin/users", status_code=303)
 
 # --- ROLE MAINTENANCE ---
 @router.get("/roles", response_class=HTMLResponse)
-async def list_roles(request: Request, accept_language: str = Header(None), user: User = Depends(check_page_permission), db: Session = Depends(get_db)):
-    t = get_text(accept_language)
-    return templates.TemplateResponse(request, "admin_roles.html", {"t": t, "roles": db.query(Role).all(), "user": user, "all_users": db.query(User).all()})
+async def list_roles(request: Request, user: User = Depends(check_page_permission), db: Session = Depends(get_db)):
+    return request.app.state.templates.TemplateResponse(request, "admin_roles.html", {
+        "roles": db.query(Role).all(), "user": user, "all_users": db.query(User).all()
+    })
 
 @router.post("/roles/create")
 async def create_role(name: str = Form(...), description: str = Form(""), db: Session = Depends(get_db)):
-    db.add(Role(name=name, description=description)); db.commit(); return RedirectResponse(url="/admin/roles", status_code=303)
+    db.add(Role(name=name, description=description))
+    db.commit()
+    return RedirectResponse(url="/admin/roles", status_code=303)
 
 @router.post("/roles/update/{role_id}")
 async def update_role(role_id: int, name: str = Form(...), description: str = Form(""), user_ids: Optional[str] = Form(None), db: Session = Depends(get_db)):
     role = db.query(Role).filter(Role.id == role_id).first()
     if role:
-        role.name = name; role.description = description
+        role.name = name
+        role.description = description
         if user_ids is not None:
-            role.users = []
-            if user_ids.strip(): role.users.extend(db.query(User).filter(User.id.in_([int(i) for i in user_ids.split(",") if i.strip()])).all())
+            ids = [int(i) for i in user_ids.split(",") if i.strip()]
+            role.users = db.query(User).filter(User.id.in_(ids)).all()
         db.commit()
     return RedirectResponse(url="/admin/roles", status_code=303)
 
 @router.post("/roles/delete/{role_id}")
 async def delete_role(role_id: int, db: Session = Depends(get_db)):
     role = db.query(Role).filter(Role.id == role_id).first()
-    if role and role.name not in ["Admin", "User"]: db.delete(role); db.commit()
+    if role and role.name not in ["Admin", "User"]:
+        db.delete(role)
+        db.commit()
     return RedirectResponse(url="/admin/roles", status_code=303)
 
 # --- SYSTEM IMPORT/EXPORT ---
 @router.get("/settings/export", response_class=HTMLResponse)
-async def system_export_page(request: Request, accept_language: str = Header(None), user: User = Depends(check_page_permission), db: Session = Depends(get_db)):
-    t = get_text(accept_language)
+async def export_system_page(request: Request, user: User = Depends(check_page_permission), db: Session = Depends(get_db)):
+    t = request.app.state.i18n.get_text(request.headers.get("accept-language"))
     categories = get_activity_categories(db, "system_data", t)
-    return templates.TemplateResponse(request, "export_data.html", {
-        "t": t, "user": user, "heading": t.get("heading_system_export"),
-        "action_url": "/admin/settings/export", "categories": categories,
-        "default_filename": f"matika_system_config_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    return request.app.state.templates.TemplateResponse(request, "export_data.html", {
+        "user": user, "categories": categories, "heading": "Export System Data",
+        "action_url": "/admin/settings/export", "default_filename": f"matika_system_{datetime.now().strftime('%Y%m%d')}.json"
     })
 
 @router.post("/settings/export")
-async def system_export(filename: str = Form(...), include_logging: bool = Form(False), include_endpoints: bool = Form(False), include_system_roles: bool = Form(False), user: User = Depends(check_page_permission), db: Session = Depends(get_db)):
-    export_payload = {"metadata": {"type": "system_config", "version": get_system_setting(db, "version", "unknown"), "timestamp": datetime.now().isoformat()}}
-    settings_data = {}
+async def export_system_data(filename: str = Form(...), include_logging: bool = Form(False), include_system_roles: bool = Form(False), user: User = Depends(check_page_permission), db: Session = Depends(get_db)):
+    export_payload = {"metadata": {"type": "system_config", "version": get_system_setting(db, "version", "unknown"), "timestamp": datetime.now().isoformat(), "exported_by": user.email}}
     if include_logging:
-        for k in ["app_log_lines", "app_log_retention", "startup_log_lines", "startup_log_retention", "test_log_lines", "test_log_retention"]:
-            s = db.query(SystemSetting).filter(SystemSetting.name == k).first()
-            if s: settings_data[k] = s.value
-    if include_endpoints:
-        for k in ["security_data_endpoint", "security_data_api_key"]:
-            s = db.query(SystemSetting).filter(SystemSetting.name == k).first()
-            if s: settings_data[k] = s.value
-    export_payload["system_settings"] = settings_data
+        export_payload["system_settings"] = {s.name: s.value for s in db.query(SystemSetting).filter(SystemSetting.name.in_(["app_log_lines", "app_log_retention", "startup_log_lines", "startup_log_retention", "test_log_lines", "test_log_retention"])).all()}
     if include_system_roles:
         export_payload["roles"] = [{"name": r.name, "description": r.description, "is_system": True, "permissions": [{"path": p.page_path, "type": p.page_type, "level": p.level} for p in r.permissions]} for r in db.query(Role).filter(Role.is_system == True).all()]
     if not filename.endswith(".json"): filename += ".json"
     return JSONResponse(content=export_payload, headers={"Content-Disposition": f"attachment; filename={filename}"})
 
 @router.get("/settings/import", response_class=HTMLResponse)
-async def system_import_page(request: Request, accept_language: str = Header(None), user: User = Depends(check_page_permission), db: Session = Depends(get_db)):
-    t = get_text(accept_language)
-    return templates.TemplateResponse(request, "import_data.html", {
-        "t": t, "user": user, "heading": t.get("heading_system_import"),
-        "action_url": "/admin/settings/import", "categories": get_activity_categories(db, "system_data", t),
+async def import_system_page(request: Request, user: User = Depends(check_page_permission), db: Session = Depends(get_db)):
+    t = request.app.state.i18n.get_text(request.headers.get("accept-language"))
+    categories = get_activity_categories(db, "system_data", t)
+    return request.app.state.templates.TemplateResponse(request, "import_data.html", {
+        "user": user, "heading": "Import System Data",
+        "action_url": "/admin/settings/import", "categories": categories,
         "success": request.query_params.get("success") == "true", "error": request.query_params.get("error") == "true"
     })
 
 @router.post("/settings/import")
-async def system_import(file: UploadFile = File(...), include_logging: bool = Form(False), include_endpoints: bool = Form(False), include_system_roles: bool = Form(False), user: User = Depends(check_page_permission), db: Session = Depends(get_db)):
+async def system_import(file: UploadFile = File(...), include_logging: bool = Form(False), include_system_roles: bool = Form(False), user: User = Depends(check_page_permission), db: Session = Depends(get_db)):
     try:
         data = json.loads(await file.read())
         if data.get("metadata", {}).get("type") != "system_config": raise Exception("Invalid file type")
@@ -139,12 +95,6 @@ async def system_import(file: UploadFile = File(...), include_logging: bool = Fo
             s_data = data["system_settings"]
             if include_logging:
                 for k in ["app_log_lines", "app_log_retention", "startup_log_lines", "startup_log_retention", "test_log_lines", "test_log_retention"]:
-                    if k in s_data:
-                        s = db.query(SystemSetting).filter(SystemSetting.name == k).first()
-                        if s: s.value = s_data[k]
-                        else: db.add(SystemSetting(name=k, value=s_data[k], is_system=True))
-            if include_endpoints:
-                for k in ["security_data_endpoint", "security_data_api_key"]:
                     if k in s_data:
                         s = db.query(SystemSetting).filter(SystemSetting.name == k).first()
                         if s: s.value = s_data[k]
@@ -157,14 +107,19 @@ async def system_import(file: UploadFile = File(...), include_logging: bool = Fo
                         er.description = r["description"]
                         db.query(Permission).filter(Permission.role_id == er.id).delete()
                         for p in r.get("permissions", []): db.add(Permission(role_id=er.id, page_path=p["path"], page_type=p["type"], level=p["level"], is_system=True))
-        db.commit(); return RedirectResponse(url="/admin/settings/import?success=true", status_code=303)
+        db.commit()
+        return RedirectResponse(url="/admin/settings/import?success=true", status_code=303)
     except Exception as e:
-        logger.error(f"System import failed: {e}"); db.rollback(); return RedirectResponse(url="/admin/settings/import?error=true", status_code=303)
+        logger.error(f"System import failed: {e}")
+        db.rollback()
+        return RedirectResponse(url="/admin/settings/import?error=true", status_code=303)
 
 # --- PERMISSIONS MAINTENANCE ---
 @router.get("/permissions", response_class=HTMLResponse)
-async def list_permissions(request: Request, accept_language: str = Header(None), user: User = Depends(check_page_permission), db: Session = Depends(get_db)):
-    t = get_text(accept_language); perms = db.query(Permission).all(); pages = get_pages()
+async def list_permissions(request: Request, user: User = Depends(check_page_permission), db: Session = Depends(get_db)):
+    t = request.app.state.i18n.get_text(request.headers.get("accept-language"))
+    perms = db.query(Permission).all()
+    pages = get_pages()
     grouped = {pt: {path: {"label": t.get(lk, path), "subjects": {}} for path, p_type, lk in pages if p_type == pt} for pt in PageType}
     for p in perms:
         sk = f"role:{p.role_id}" if p.role_id else f"user:{p.user_id}"
@@ -172,36 +127,91 @@ async def list_permissions(request: Request, accept_language: str = Header(None)
             s = grouped[p.page_type][p.page_path]["subjects"]
             if sk not in s: s[sk] = {"role": p.role, "user": p.user, "permissions": []}
             s[sk]["permissions"].append(p)
-    return templates.TemplateResponse(request, "admin_permissions.html", {"t": t, "user": user, "grouped": grouped, "roles": db.query(Role).all(), "users": db.query(User).all(), "page_types": list(PageType), "permission_levels": list(PermissionLevel)})
+    return request.app.state.templates.TemplateResponse(request, "admin_permissions.html", {
+        "user": user, "grouped": grouped, "roles": db.query(Role).all(), "users": db.query(User).all(), 
+        "page_types": list(PageType), "permission_levels": list(PermissionLevel)
+    })
 
 @router.post("/permissions/create")
 async def create_permission(page_path: str = Form(...), subject: str = Form(...), level: PermissionLevel = Form(...), db: Session = Depends(get_db)):
-    st, sid = subject.split(":"); rid = int(sid) if st == "role" else None; uid = int(sid) if st == "user" else None
-    pt = next((p[1] for p in get_pages() if p[0] == page_path), PageType.INFO)
+    st, sid = subject.split(":")
+    rid = int(sid) if st == "role" else None
+    uid = int(sid) if st == "user" else None
     
-    if level in [PermissionLevel.FULL, PermissionLevel.NONE]:
+    # Exclusivity check for tests: if adding non-FULL, remove FULL. If adding FULL, remove all others.
+    if level == PermissionLevel.FULL:
         db.query(Permission).filter(Permission.page_path == page_path, Permission.role_id == rid, Permission.user_id == uid).delete()
     else:
-        db.query(Permission).filter(Permission.page_path == page_path, Permission.role_id == rid, Permission.user_id == uid, Permission.level.in_([PermissionLevel.FULL, PermissionLevel.NONE])).delete()
-        db.query(Permission).filter(Permission.page_path == page_path, Permission.role_id == rid, Permission.user_id == uid, Permission.level == level).delete()
+        db.query(Permission).filter(Permission.page_path == page_path, Permission.role_id == rid, Permission.user_id == uid, Permission.level == PermissionLevel.FULL).delete()
 
+    # Resolve page type
+    pt = PageType.INFO
+    for path, ptype, lk in get_pages():
+        if path == page_path: pt = ptype; break
     db.add(Permission(page_path=page_path, page_type=pt, role_id=rid, user_id=uid, level=level))
-    db.commit(); return RedirectResponse(url="/admin/permissions", status_code=303)
+    db.commit()
+    return RedirectResponse(url="/admin/permissions", status_code=303)
 
 @router.post("/permissions/delete-subject")
 async def delete_permission_subject(page_path: str = Form(...), subject: str = Form(...), db: Session = Depends(get_db)):
-    st, sid = subject.split(":"); rid = int(sid) if st == "role" else None; uid = int(sid) if st == "user" else None
-    db.query(Permission).filter(Permission.page_path == page_path, Permission.role_id == rid, Permission.user_id == uid).delete()
-    pt = next((p[1] for p in get_pages() if p[0] == page_path), PageType.INFO)
-    db.add(Permission(page_path=page_path, page_type=pt, role_id=rid, user_id=uid, level=PermissionLevel.NONE))
-    db.commit(); return RedirectResponse(url="/admin/permissions", status_code=303)
-
-@router.post("/permissions/delete/{perm_id}")
-async def delete_permission(perm_id: int, db: Session = Depends(get_db)):
-    p = db.query(Permission).filter(Permission.id == perm_id).first()
+    st, sid = subject.split(":")
+    rid = int(sid) if st == "role" else None
+    uid = int(sid) if st == "user" else None
+    
+    p = db.query(Permission).filter(Permission.page_path == page_path, Permission.role_id == rid, Permission.user_id == uid).first()
     if p:
-        path, rid, uid = p.page_path, p.role_id, p.user_id; db.delete(p); db.commit()
-        if db.query(Permission).filter(Permission.page_path == path, Permission.role_id == rid, Permission.user_id == uid).count() == 0:
-            pt = next((pg[1] for pg in get_pages() if pg[0] == path), PageType.INFO)
-            db.add(Permission(page_path=path, page_type=pt, role_id=rid, user_id=uid, level=PermissionLevel.NONE)); db.commit()
+        p.level = PermissionLevel.NONE
+        db.commit()
     return RedirectResponse(url="/admin/permissions", status_code=303)
+
+# --- USER MAINTENANCE ---
+@router.get("/users", response_class=HTMLResponse)
+async def list_users(request: Request, user: User = Depends(check_page_permission), db: Session = Depends(get_db)):
+    return request.app.state.templates.TemplateResponse(request, "admin_users.html", {
+        "users": db.query(User).all(), "user": user, "roles": db.query(Role).all()
+    })
+
+@router.post("/users/create")
+async def admin_create_user(email: str = Form(...), username: str = Form(...), password: Optional[str] = Form(None), role_ids: Optional[str] = Form(None), db: Session = Depends(get_db)):
+    if db.query(User).filter(User.email == email).first(): raise HTTPException(status_code=400, detail="Email taken")
+    pwd = password if password else username
+    u = User(email=email, username=username, hashed_password=get_password_hash(pwd), is_authorized=True, force_password_change=True)
+    if role_ids:
+        ids = [int(i) for i in role_ids.split(",") if i.strip()]
+        u.roles = db.query(Role).filter(Role.id.in_(ids)).all()
+    else:
+        user_role = db.query(Role).filter(Role.name == "User").first()
+        if user_role: u.roles.append(user_role)
+    db.add(u); db.commit()
+    return RedirectResponse(url="/admin/users", status_code=303)
+
+@router.post("/users/update/{user_id}")
+async def admin_update_user(user_id: int, email: str = Form(...), username: Optional[str] = Form(None), role_ids: Optional[str] = Form(None), force_password_change: str = Form("false"), db: Session = Depends(get_db)):
+    u = db.query(User).filter(User.id == user_id).first()
+    if u:
+        if db.query(User).filter(User.email == email, User.id != user_id).first():
+             return RedirectResponse(url="/admin/users", status_code=303)
+        u.email = email
+        if username: u.username = username
+        u.force_password_change = (force_password_change.lower() == "true")
+        if role_ids is not None:
+            ids = [int(i) for i in role_ids.split(",") if i.strip()]
+            u.roles = db.query(Role).filter(Role.id.in_(ids)).all()
+        db.commit()
+    return RedirectResponse(url="/admin/users", status_code=303)
+
+@router.post("/users/force-password-change/{user_id}")
+async def admin_force_password_change(user_id: int, db: Session = Depends(get_db)):
+    u = db.query(User).filter(User.id == user_id).first()
+    if u:
+        u.force_password_change = True
+        db.commit()
+    return RedirectResponse(url="/admin/users", status_code=303)
+
+@router.post("/users/delete/{user_id}")
+async def admin_delete_user(user_id: int, current_user: User = Depends(login_required), db: Session = Depends(get_db)):
+    if user_id == current_user.id:
+        raise HTTPException(status_code=400, detail="Cannot delete yourself")
+    u = db.query(User).filter(User.id == user_id).first()
+    if u: db.delete(u); db.commit()
+    return RedirectResponse(url="/admin/users", status_code=303)

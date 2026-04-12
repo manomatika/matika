@@ -12,7 +12,7 @@ else:
     os.environ["DATABASE_URL"] = f"sqlite:////{test_db_path.lstrip('/')}"
 
 from matika.database import Base, get_db, User, UserSetting, SystemSetting, Role, pwd_context, user_roles
-from matika.main import app
+from matika.main import create_app, init_plugins
 
 # Test database setup
 TEST_DATABASE_URL = os.environ["DATABASE_URL"]
@@ -20,7 +20,28 @@ engine = create_engine(TEST_DATABASE_URL, connect_args={"check_same_thread": Fal
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 @pytest.fixture(scope="session", autouse=True)
-def setup_database():
+def setup_plugins():
+    # 1. Create plugins directory in PROJECT ROOT
+    from matika.core.paths import ROOT_DIR
+    plugins_dir = os.path.join(ROOT_DIR, "plugins")
+    os.makedirs(plugins_dir, exist_ok=True)
+    
+    # Path to eyerate relative to matika root
+    eyerate_src = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "eyerate"))
+    eyerate_dest = os.path.join(plugins_dir, "eyerate")
+    
+    if not os.path.exists(eyerate_dest):
+        try:
+            os.symlink(eyerate_src, eyerate_dest)
+        except OSError:
+            import shutil
+            if os.path.exists(eyerate_dest): shutil.rmtree(eyerate_dest)
+            shutil.copytree(eyerate_src, eyerate_dest)
+    
+    yield
+
+@pytest.fixture(scope="session", autouse=True)
+def setup_database(setup_plugins):
     # Ensure we are using the test database
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
@@ -64,17 +85,25 @@ def db():
     connection.close()
 
 @pytest.fixture
-def client(db):
+def test_app(db):
+    # Fresh app for each test
+    app_instance = create_app()
+    # Initialize plugins for THIS fresh app instance
+    init_plugins(app_instance, db)
+    return app_instance
+
+@pytest.fixture
+def client(test_app, db):
     def override_get_db():
         try:
             yield db
         finally:
             pass # Session is managed by the fixture
 
-    app.dependency_overrides[get_db] = override_get_db
-    with TestClient(app) as c:
+    test_app.dependency_overrides[get_db] = override_get_db
+    with TestClient(test_app) as c:
         yield c
-    app.dependency_overrides.clear()
+    test_app.dependency_overrides.clear()
 
 @pytest.fixture
 def test_user(db):

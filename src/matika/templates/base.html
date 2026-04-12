@@ -20,15 +20,7 @@
         <div class="menu-item">{{ t.menu_activities or 'Activities' }}
             <div class="dropdown">
                 {% for item in plugin_menu_items %}
-                    {% set user_role_names = user.roles | map(attribute='name') | list if user else [] %}
-                    {% set has_role = false %}
-                    {% for r in item.roles %}
-                        {% if r in user_role_names %}{% set has_role = true %}{% endif %}
-                    {% endfor %}
-                    
-                    {% if not item.roles or has_role %}
-                        <div data-href="{{ item.href }}">{{ t[item.label_key] or item.label_key }}</div>
-                    {% endif %}
+                    <div data-href="{{ item.href }}">{{ t[item.label_key] or item.label_key }}</div>
                 {% endfor %}
             </div>
         </div>
