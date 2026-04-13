@@ -3,7 +3,7 @@ from fastapi import Request, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from ..database import get_db, User
 
-async def get_current_user(request: Request, db: Session = Depends(get_db)):
+def get_current_user(request: Request, db: Session = Depends(get_db)):
     """Retrieves the currently logged-in user from the session."""
     user_id = request.session.get("user_id")
     if not user_id:

@@ -3,25 +3,26 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session
 from ..database import get_db, User, PageType
 from ..auth.service import verify_password
+from ..auth.dependencies import get_current_user, login_required
 from ..core.utils import format_num
 
 router = APIRouter(tags=[PageType.INFO])
 
 @router.get("/", response_class=HTMLResponse)
 async def home(request: Request, db: Session = Depends(get_db)):
-    from ..auth.dependencies import get_current_user
-    user = await get_current_user(request, db)
+    user = get_current_user(request, db)
     if not user:
         return RedirectResponse(url="/login", status_code=303)
     if user.force_password_change:
         return RedirectResponse(url="/change-password", status_code=303)
-    return request.app.state.templates.TemplateResponse(request, "index.html", {})
+    return request.app.state.templates.TemplateResponse(request, "index.html", {"user": user})
 
 @router.get("/about", response_class=HTMLResponse)
 async def about(request: Request, db: Session = Depends(get_db)):
     from ..database import get_system_setting
     version = get_system_setting(db, "version", "0.0.1")
-    return request.app.state.templates.TemplateResponse(request, "about.html", {"version": version})
+    user = get_current_user(request, db)
+    return request.app.state.templates.TemplateResponse(request, "about.html", {"version": version, "user": user})
 
 @router.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
@@ -72,13 +73,15 @@ async def forgot_password(request: Request, email: str = Form(...)):
 
 # --- PLACEHOLDERS FOR OLD TESTS ---
 @router.get("/change-password", response_class=HTMLResponse)
-async def change_password_page(request: Request):
-    return request.app.state.templates.TemplateResponse(request, "change_password.html", {})
+async def change_password_page(request: Request, db: Session = Depends(get_db)):
+    user = get_current_user(request, db)
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+    return request.app.state.templates.TemplateResponse(request, "change_password.html", {"user": user})
 
 @router.post("/change-password")
 async def change_password(request: Request, new_password: str = Form(...), confirm_password: str = Form(...), db: Session = Depends(get_db)):
-    from ..auth.dependencies import get_current_user
-    user = await get_current_user(request, db)
+    user = get_current_user(request, db)
     if not user: raise HTTPException(status_code=401)
     from ..auth.service import get_password_hash
     user.hashed_password = get_password_hash(new_password)

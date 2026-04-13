@@ -32,22 +32,49 @@ def create_app() -> FastAPI:
 
     # --- 2. APP SETUP ---
     app = FastAPI(title="Matika")
+
+    @app.middleware("http")
+    async def add_user_to_request(request: Request, call_next):
+        # 1. Skip static
+        if request.url.path.startswith("/static"):
+            return await call_next(request)
+
+        # 2. Get user from session (SessionMiddleware must be outer-most to run first)
+        from .auth.dependencies import get_current_user
+        from .database import SessionLocal
+
+        user = None
+        # get_current_user is now sync
+        user_id = request.session.get("user_id")
+        if user_id:
+            db = SessionLocal()
+            try:
+                from .database import User
+                from sqlalchemy.orm import subqueryload
+                user = db.query(User).options(subqueryload(User.roles)).filter(User.id == user_id).first()
+            finally:
+                db.close()
+
+        request.state.user = user
+        return await call_next(request)
+
+    # Outer-most middleware runs FIRST on request
     app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY, max_age=86400)
 
     # Mount static
     app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "src", "matika", "static")), name="static")
-    
+
     # Fresh Services for each app instance
     templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "src", "matika", "templates"))
     i18n = I18nService()
     service = AppLugService(templates=templates, app=app)
-    
+
     templates.env.filters["format_num"] = format_num
     templates.env.globals["getattr"] = getattr
     templates.env.globals["hasattr"] = hasattr
     templates.env.globals["isinstance"] = isinstance
     templates.env.globals["str"] = str
-    
+
     app.state.templates = templates
     app.state.i18n = i18n
     app.state.app_lug_service = service
@@ -61,6 +88,7 @@ def create_app() -> FastAPI:
             "t": i18n.get_text(request.headers.get("accept-language")),
             "user": getattr(request.state, "user", None)
         }
+
 
     templates.context_processors.append(context_processor)
 
