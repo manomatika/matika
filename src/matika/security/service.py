@@ -10,6 +10,11 @@ async def check_page_permission(request: Request, db: Session = Depends(get_db),
     """Validates that the current user has access to the requested path."""
     request.state.user = user
     path = request.url.path
+    
+    # Always allow access to password change pages if authenticated
+    if "/change-password" in path:
+        return user
+        
     role_ids = [role.id for role in user.roles]
     
     # Check inheritance: /admin/users -> /admin

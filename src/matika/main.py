@@ -59,7 +59,7 @@ def create_app() -> FastAPI:
         return await call_next(request)
 
     # Outer-most middleware runs FIRST on request
-    app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY, max_age=86400)
+    app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
 
     # Mount static
     app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "src", "matika", "static")), name="static")
