@@ -44,6 +44,9 @@ def create_app() -> FastAPI:
     
     templates.env.filters["format_num"] = format_num
     templates.env.globals["getattr"] = getattr
+    templates.env.globals["hasattr"] = hasattr
+    templates.env.globals["isinstance"] = isinstance
+    templates.env.globals["str"] = str
     
     app.state.templates = templates
     app.state.i18n = i18n

@@ -15,6 +15,7 @@ class BaseAppLug(ABC):
         self.version = manifest.get("version")
         self.router = APIRouter()
         self.templates = None # Set by AppLugService
+        self.app = None # Set by AppLugService
 
     @abstractmethod
     def on_load(self, db: Session):

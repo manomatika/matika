@@ -101,12 +101,12 @@
                                 <select id="field-{{ field.name }}" name="{{ field.name }}" class="edit-input" {% if field.read_only %}disabled{% endif %}>
                                     {% if field.options_source == 'security_types' and security_types %}
                                         {% for st in security_types %}
-                                        <option value="{{ st.value }}">{{ st.value }}</option>
+                                        <option value="{{ st }}">{{ st }}</option>
                                         {% endfor %}
                                     {% elif field.options_source == 'asset_classes' and asset_classes %}
                                         <option value="">-- Select Asset Class --</option>
                                         {% for ac in asset_classes %}
-                                        <option value="{{ ac.value }}">{{ ac.value }}</option>
+                                        <option value="{{ ac }}">{{ ac }}</option>
                                         {% endfor %}
                                     {% endif %}
                                 </select>

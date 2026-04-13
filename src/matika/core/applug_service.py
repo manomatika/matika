@@ -82,9 +82,18 @@ class AppLugService:
                 
                 # Ensure the plugin source directory is in sys.path
                 import sys
-                if plugin_path not in sys.path:
+                plugin_src_path = os.path.join(plugin_path, "src")
+                if os.path.exists(plugin_src_path) and plugin_src_path not in sys.path:
+                    print(f"DEBUG: adding {plugin_src_path} to sys.path")
+                    sys.path.insert(0, plugin_src_path)
+                elif plugin_path not in sys.path:
                     print(f"DEBUG: adding {plugin_path} to sys.path")
                     sys.path.insert(0, plugin_path)
+                
+                # Ensure the main app's src directory is in sys.path so plugins can import matika
+                project_src = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+                if project_src not in sys.path:
+                    sys.path.insert(0, project_src)
                     
                 module = importlib.import_module(module_path)
                 print(f"DEBUG: module loaded: {module}")
@@ -95,6 +104,7 @@ class AppLugService:
                 # Instantiate and store
                 plugin_instance = plugin_class(manifest)
                 plugin_instance.templates = self.templates
+                plugin_instance.app = self.app
                 self.loaded_plugins[plugin_instance.id] = plugin_instance
                 
                 # Run standard registration logic (Roles, Permissions, Menu)
