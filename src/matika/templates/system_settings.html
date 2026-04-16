@@ -9,7 +9,7 @@
     <form action="/settings/system" method="post">
         <!-- Log Settings -->
         <div class="settings-section">
-            <h2 style="margin-bottom: 25px;">Logging</h2>
+            <h2 style="margin-bottom: 25px;">{{ t.heading_logging_settings }}</h2>
             
             <div style="display: flex; flex-direction: column; gap: 40px;">
                 <!-- Application Log Sub-section -->
@@ -55,6 +55,21 @@
                             <input type="number" id="test_log_retention" name="test_log_retention" value="{{ test_log_retention }}" min="1" max="31" style="width: 100px;">
                         </div>
                     </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Security Settings -->
+        <div class="settings-section" style="margin-top: 40px; border-top: 1px solid #eee; padding-top: 30px;">
+            <h2 style="margin-bottom: 25px;">{{ t.heading_security_settings }}</h2>
+            <div style="display: flex; flex-direction: column; gap: 15px;">
+                <div>
+                    <label for="session_idle_timeout" style="display: block; font-weight: bold; margin-bottom: 5px;">{{ t.label_session_idle_timeout }}</label>
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <input type="text" id="session_idle_timeout" name="session_idle_timeout" value="{{ session_idle_timeout }}" style="width: 100px; padding: 8px; border: 1px solid #ccc; border-radius: 4px;" inputmode="numeric" pattern="[0-9]*">
+                        <span style="font-size: 0.9em; color: #666;">{{ t.unit_minutes }}</span>
+                    </div>
+                    <p style="font-size: 0.85em; color: #666; margin-top: 5px;">{{ t.help_session_timeout }}</p>
                 </div>
             </div>
         </div>

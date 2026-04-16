@@ -3,11 +3,28 @@
 {% block title %}{{ t.heading_about }}{% endblock %}
 
 {% block content %}
-<div style="text-align: center; margin-top: 50px;">
+<div style="text-align: center; margin-top: 50px; max-width: 600px; margin-left: auto; margin-right: auto;">
     <h1>Matika</h1>
-    <p>{{ t.label_version }} {{ version }}</p>
-    <div style="margin-top: 50px;">
-        <p>{{ t.label_copyright }} &copy; 2026 Patrick James Tallman</p>
+    <p style="font-size: 1.2em;">{{ t.label_version }} {{ version }}</p>
+    
+    <div style="margin-top: 40px; text-align: left; padding: 20px; border: 1px solid #eee; border-radius: 8px; background-color: #fafafa;">
+        <h3 style="margin-top: 0; border-bottom: 1px solid #ddd; padding-bottom: 10px;">{{ t.heading_plugins }}</h3>
+        {% if plugins %}
+            <ul style="list-style: none; padding: 0;">
+            {% for plugin in plugins %}
+                <li style="margin-bottom: 10px; display: flex; justify-content: space-between;">
+                    <span style="font-weight: bold;">{{ plugin.id }}</span>
+                    <span style="color: #666;">v{{ plugin.version }}</span>
+                </li>
+            {% endfor %}
+            </ul>
+        {% else %}
+            <p style="color: #999; font-style: italic;">No plugins loaded.</p>
+        {% endif %}
+    </div>
+
+    <div style="margin-top: 60px; color: #666; font-size: 0.9em;">
+        <p>{{ t.label_copyright }}</p>
     </div>
 </div>
 {% endblock %}

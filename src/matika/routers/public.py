@@ -1,3 +1,4 @@
+import time
 from fastapi import APIRouter, Depends, HTTPException, Request, Form, Header
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session
@@ -22,7 +23,12 @@ async def about(request: Request, db: Session = Depends(get_db)):
     from ..database import get_system_setting
     version = get_system_setting(db, "version", "0.0.1")
     user = get_current_user(request, db)
-    return request.app.state.templates.TemplateResponse(request, "about.html", {"version": version, "user": user})
+    plugins = request.app.state.app_lug_service.get_loaded_plugins()
+    return request.app.state.templates.TemplateResponse(request, "about.html", {
+        "version": version, 
+        "user": user,
+        "plugins": plugins
+    })
 
 @router.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
@@ -34,10 +40,16 @@ async def login(request: Request, email: str = Form(...), password: str = Form(.
     if not user or not verify_password(password, user.hashed_password):
         return request.app.state.templates.TemplateResponse(request, "login.html", {"error": "Invalid email or password"})
     
+    # Rotate session: Clear old data to force a new session state (Standard Best Practice)
+    request.session.clear() 
+    
     request.session["user_id"] = user.id
+    request.session["last_activity"] = int(time.time())
+    
     if remember_me:
-        # Standard way to tell Starlette to keep session (though it depends on max_age being None in middleware config)
-        request.session.max_age = 86400 * 30 # 30 days
+        # If remembered, we signal to the middleware to keep it long-lived.
+        # But we also need our internal timeout to be long.
+        request.session["is_persistent"] = True
         
     if user.force_password_change:
         return RedirectResponse(url="/change-password", status_code=303)

@@ -31,35 +31,19 @@ def create_app() -> FastAPI:
     rotate_logs(IS_TESTING)
 
     # --- 2. APP SETUP ---
-    app = FastAPI(title="Matika")
-
-    @app.middleware("http")
-    async def add_user_to_request(request: Request, call_next):
-        # 1. Skip static
+    from .auth.dependencies import get_current_user
+    
+    def inject_user_to_state(request: Request, db: Session = Depends(get_db)):
+        """Global dependency to ensure request.state.user is always populated."""
         if request.url.path.startswith("/static"):
-            return await call_next(request)
+            return
+        request.state.user = get_current_user(request, db)
 
-        # 2. Get user from session (SessionMiddleware must be outer-most to run first)
-        from .auth.dependencies import get_current_user
-        from .database import SessionLocal
-
-        user = None
-        # get_current_user is now sync
-        user_id = request.session.get("user_id")
-        if user_id:
-            db = SessionLocal()
-            try:
-                from .database import User
-                from sqlalchemy.orm import subqueryload
-                user = db.query(User).options(subqueryload(User.roles)).filter(User.id == user_id).first()
-            finally:
-                db.close()
-
-        request.state.user = user
-        return await call_next(request)
-
+    app = FastAPI(title="Matika", dependencies=[Depends(inject_user_to_state)])
+    
     # Outer-most middleware runs FIRST on request
-    app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
+    # max_age=None ensures the browser sees this as a session cookie (cleared on close).
+    app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY, max_age=None)
 
     # Mount static
     app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "src", "matika", "static")), name="static")
@@ -128,7 +112,10 @@ app = create_app()
 
 def init_plugins(app_instance: FastAPI, db: Session):
     """Discovers and registers plugins into the FastAPI app instance."""
+    logger = logging.getLogger(__name__)
+    logger.info("Discovering plugins...")
     app_instance.state.app_lug_service.discover(db)
+    logger.info(f"Loaded plugins: {len(app_instance.state.app_lug_service.loaded_plugins)}")
 
 # Initialize database & cleanup logs for real runs
 if not IS_TESTING:

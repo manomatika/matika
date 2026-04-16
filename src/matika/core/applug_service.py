@@ -177,3 +177,7 @@ class AppLugService:
         for plugin in self.loaded_plugins.values():
             all_items.extend(plugin.get_menu_items())
         return all_items
+
+    def get_loaded_plugins(self) -> List[Dict[str, str]]:
+        """Returns a list of loaded plugins with their IDs and versions."""
+        return [{"id": p.id, "version": p.version} for p in self.loaded_plugins.values()]

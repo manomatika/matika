@@ -32,6 +32,26 @@ def test_save_system_settings(client, test_admin, db):
     # Verify in DB
     setting = db.query(SystemSetting).filter(SystemSetting.name == "app_log_lines").first()
     assert setting.value == "250"
+
+def test_save_security_settings(client, test_admin, db):
+    # Log in
+    client.post(
+        "/login",
+        data={"email": test_admin.email, "password": "adminpassword"}
+    )
+    
+    # Save security settings (45 minutes)
+    response = client.post(
+        "/settings/system",
+        data={"session_idle_timeout": "45"},
+        follow_redirects=True
+    )
+    assert response.status_code == 200
+
+    # Verify in DB (should be 45 * 60 = 2700 seconds)
+    setting = db.query(SystemSetting).filter(SystemSetting.name == "session_idle_timeout").first()
+    assert setting.value == "2700"
+
 def test_show_log(client, test_admin):
     # Log in
     client.post(
