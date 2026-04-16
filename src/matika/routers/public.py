@@ -2,7 +2,9 @@ import time
 from fastapi import APIRouter, Depends, HTTPException, Request, Form, Header
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session
-from ..database import get_db, User, PageType
+from ..database import get_db
+from ..models import User
+from ..core.constants import PageType
 from ..auth.service import verify_password
 from ..auth.dependencies import get_current_user, login_required
 from ..core.utils import format_num

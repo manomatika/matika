@@ -176,11 +176,6 @@ def test_utils_load_metadata_no_file():
     meta = load_metadata("nothing", metadata_dir="/tmp/nonexistent")
     assert meta == {}
 
-def test_eyerate_lookup_route(client, test_admin):
-    client.post("/login", data={"email": test_admin.email, "password": "adminpassword"})
-    resp = client.get("/admin/securities/lookup?symbol=VOO")
-    assert resp.status_code in [200, 404, 400]
-
 def test_applug_service_empty_menu():
     from matika.core.applug_service import AppLugService
     s = AppLugService()

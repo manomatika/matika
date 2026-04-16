@@ -6,7 +6,8 @@ from typing import Dict, List, Any, Optional
 from sqlalchemy.orm import Session
 from .paths import ROOT_DIR
 from .applug import BaseAppLug
-from ..database import Role, Permission, PageType, PermissionLevel
+from ..models import Role, Permission
+from .constants import PageType, PermissionLevel
 
 logger = logging.getLogger(__name__)
 

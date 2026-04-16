@@ -1,7 +1,9 @@
 import logging
 from fastapi import Request, Depends, HTTPException
 from sqlalchemy.orm import Session
-from ..database import get_db, User, Permission, PermissionLevel, PageType
+from ..database import get_db
+from ..models import User, Permission
+from ..core.constants import PermissionLevel, PageType
 from ..auth.dependencies import login_required
 
 logger = logging.getLogger(__name__)

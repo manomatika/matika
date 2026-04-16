@@ -1,7 +1,8 @@
 from fastapi import Request, Depends, HTTPException, status
 import time
 from sqlalchemy.orm import Session, subqueryload
-from ..database import get_db, User, get_system_setting
+from ..database import get_db, get_system_setting
+from ..models import User
 
 def get_current_user(request: Request, db: Session = Depends(get_db)):
     """Retrieves the currently logged-in user from the session with inactivity timeout."""

@@ -9,7 +9,8 @@ from sqlalchemy.orm import Session
 
 # Local Imports
 from .core.paths import BASE_DIR
-from .database import SessionLocal, init_db, get_db, PageType, get_system_setting
+from .database import SessionLocal, init_db, get_db, get_system_setting
+from .core.constants import PageType
 from .i18n import I18nService
 from .core.logging_config import (
     setup_startup_logging, rotate_logs, cleanup_logs, finalize_logging, 

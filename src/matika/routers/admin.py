@@ -11,9 +11,10 @@ from pydantic import BaseModel
 
 from ..core.paths import BASE_DIR
 from ..database import (
-    get_db, User, Role, Permission, SystemSetting, PageType,
-    PermissionLevel, get_pages, get_system_setting
+    get_db, get_pages, get_system_setting
 )
+from ..models import User, Role, Permission, SystemSetting
+from ..core.constants import PageType, PermissionLevel
 from ..core.logging_config import ACTIVE_LOG, STARTUP_LOG, LOG_DIR
 from ..auth.service import get_password_hash
 from ..auth.dependencies import login_required

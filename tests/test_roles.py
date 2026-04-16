@@ -1,5 +1,6 @@
 import pytest
-from matika.database import Role, User, user_roles, SessionLocal
+from matika.models import Role, User, user_roles
+from matika.database import SessionLocal
 
 def test_roles_page_authenticated(client, test_admin):
     client.post("/login", data={"email": "admin@example.com", "password": "adminpassword"})

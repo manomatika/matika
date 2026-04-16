@@ -1,5 +1,5 @@
 import pytest
-from matika.database import User, pwd_context
+from matika.models import User, pwd_context
 
 def test_register_user(client, db):
     response = client.post(

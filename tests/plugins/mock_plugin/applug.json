@@ -1,0 +1,24 @@
+{
+    "id": "mock_plugin",
+    "name": "Mock Plugin",
+    "version": "1.0.0",
+    "description": "A mock plugin for unit testing Matika's plugin system.",
+    "entry_point": "mock_plugin.plugin.MockPlugin",
+    "menu_items": [
+        {
+            "label_key": "item_mock",
+            "href": "/admin/mock",
+            "parent": "Activities"
+        }
+    ],
+    "permissions": [
+        {
+            "page_path": "/admin/mock",
+            "page_type": "Maintenance",
+            "roles": {
+                "Admin": "full",
+                "User": "read"
+            }
+        }
+    ]
+}

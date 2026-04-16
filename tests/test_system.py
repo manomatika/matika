@@ -1,6 +1,7 @@
 import pytest
 import os
-from matika.database import SystemSetting, get_system_setting
+from matika.models import SystemSetting
+from matika.database import get_system_setting
 
 def test_system_settings_page(client, test_admin):
     # Log in

@@ -1,5 +1,6 @@
 import pytest
-from matika.database import Permission, PermissionLevel, Role, User, PageType
+from matika.models import Permission, Role, User
+from matika.core.constants import PermissionLevel, PageType
 
 def test_seeding_defaults(db):
     # We want to test init_db seeding without locking the DB.

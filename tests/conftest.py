@@ -11,7 +11,8 @@ if os.name == 'nt':
 else:
     os.environ["DATABASE_URL"] = f"sqlite:////{test_db_path.lstrip('/')}"
 
-from matika.database import Base, get_db, User, UserSetting, SystemSetting, Role, pwd_context, user_roles
+from matika.database import get_db
+from matika.models import Base, User, UserSetting, SystemSetting, Role, pwd_context, user_roles
 from matika.main import create_app, init_plugins
 
 # Test database setup
@@ -23,22 +24,24 @@ TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engin
 def setup_plugins():
     # 1. Create plugins directory in PROJECT ROOT
     from matika.core.paths import ROOT_DIR
+    import shutil
     plugins_dir = os.path.join(ROOT_DIR, "plugins")
+    if os.path.exists(plugins_dir):
+        shutil.rmtree(plugins_dir)
     os.makedirs(plugins_dir, exist_ok=True)
     
-    # Path to eyerate relative to matika root
-    eyerate_src = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "eyerate"))
-    eyerate_dest = os.path.join(plugins_dir, "eyerate")
+    # 2. Setup mock_plugin for Matika core system tests
+    mock_src = os.path.join(os.path.dirname(__file__), "plugins", "mock_plugin")
+    mock_dest = os.path.join(plugins_dir, "mock_plugin")
     
-    if not os.path.exists(eyerate_dest):
-        try:
-            os.symlink(eyerate_src, eyerate_dest)
-        except OSError:
-            import shutil
-            if os.path.exists(eyerate_dest): shutil.rmtree(eyerate_dest)
-            shutil.copytree(eyerate_src, eyerate_dest)
+    if os.path.exists(mock_src):
+        shutil.copytree(mock_src, mock_dest)
     
     yield
+    
+    # Cleanup plugins directory after all tests
+    if os.path.exists(plugins_dir):
+        shutil.rmtree(plugins_dir)
 
 @pytest.fixture(scope="session", autouse=True)
 def setup_database(setup_plugins):
