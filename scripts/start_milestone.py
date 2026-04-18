@@ -18,7 +18,7 @@ def get_repo_full_name():
     return run("gh repo view --json nameWithOwner -q .nameWithOwner")
 
 def main():
-    yaml_path = "milestone_tasks.yaml"
+    yaml_path = "scripts/milestone_tasks.yaml"
     if not os.path.exists(yaml_path):
         print(f"[ERROR] {yaml_path} not found.")
         sys.exit(1)

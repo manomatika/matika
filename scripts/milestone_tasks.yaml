@@ -1,9 +1,9 @@
-milestone: "Milestone 9 - Validate and verify deployment of v1.0.6 release"
-branch: "feat/milestone-9-VandV"
-description: "Validate and verify deployment of v1.0.6 release"
+milestone: "Milestone 1 - Initial refactor of matika out of rateeye"
+branch: "feat/milestone-1-Initial-refactor"
+description: "Initial refactor of matika out of rateeye"
 issues:
-  - title: "Release v1.0.6 bug fixes and improvements"
-    labels: ["feature", "milestone-9"]
+  - title: "Initial refactor of matika out of rateeye"
+    labels: ["feature", "milestone-1"]
     description: |
-      Release v1.0.6 bug fixes and improvements:
+      Initial refactor of matika out of rateeye
     
