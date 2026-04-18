@@ -1,10 +1,8 @@
 from sqlalchemy import Column, String, Integer, Boolean, Text, ForeignKey, Table, Enum as SQLEnum, LargeBinary
 from sqlalchemy.orm import relationship, declarative_base
-from passlib.context import CryptContext
 from .core.constants import PageType, PermissionLevel
 
 Base = declarative_base()
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # Many-to-Many Association Table
 user_roles = Table(

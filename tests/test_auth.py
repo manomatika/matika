@@ -1,5 +1,6 @@
 import pytest
-from matika.models import User, pwd_context
+from matika.models import User
+from matika.auth.service import verify_password, get_password_hash
 
 def test_register_user(client, db):
     response = client.post(
@@ -14,7 +15,7 @@ def test_register_user(client, db):
     user = db.query(User).filter(User.username == "newuser").first()
     assert user is not None
     assert user.email == "new@example.com"
-    assert pwd_context.verify("password123", user.hashed_password)
+    assert verify_password("password123", user.hashed_password)
 
 def test_register_duplicate_username(client, test_user):
     response = client.post(
@@ -55,7 +56,7 @@ def test_logout(client, test_user):
 
 def test_force_password_change_redirect(client, db):
     # Create a user with force_password_change=True
-    hashed_pwd = pwd_context.hash("forcepassword")
+    hashed_pwd = get_password_hash("forcepassword")
     user = User(
         username="forceuser",
         email="force@example.com",
@@ -99,4 +100,4 @@ def test_change_password_success(client, test_user):
     # But since we use the same 'db' fixture, it should be fine.
     # Wait, the client uses a different db session (the one yielded by get_db override).
     # But our fixture 'db' is what we yielded in the override.
-    assert pwd_context.verify("newpassword123", test_user.hashed_password)
+    assert verify_password("newpassword123", test_user.hashed_password)

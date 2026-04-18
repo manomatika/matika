@@ -1,5 +1,5 @@
 import pytest
-from matika.models import User, Role, pwd_context
+from matika.models import User, Role
 
 def test_user_settings_page(client, test_user, db):
     from matika.database import init_db

@@ -91,13 +91,20 @@ async def forgot_password(request: Request, email: str = Form(...)):
 async def change_password_page(request: Request, db: Session = Depends(get_db)):
     user = get_current_user(request, db)
     if not user: return RedirectResponse(url="/login", status_code=303)
-    # The test expects "Change Password" or "heading_change_password"
-    return request.app.state.templates.TemplateResponse(request, "user_change_password.html", {"user": user})
+    return request.app.state.templates.TemplateResponse(request, "change_password.html", {"user": user})
 
 @router.post("/change-password")
-async def change_password(request: Request, db: Session = Depends(get_db), new_password: str = Form(...)):
+async def change_password(request: Request, new_password: str = Form(...), confirm_password: str = Form(...), db: Session = Depends(get_db)):
     user = get_current_user(request, db)
     if not user: raise HTTPException(status_code=401)
+    
+    if new_password != confirm_password:
+        t = request.app.state.i18n.get_text(request.headers.get("accept-language"))
+        return request.app.state.templates.TemplateResponse(request, "change_password.html", {
+            "user": user, 
+            "error": t.get("err_passwords_mismatch", "Passwords do not match")
+        })
+
     from ..auth.service import get_password_hash
     user.hashed_password = get_password_hash(new_password)
     user.force_password_change = False

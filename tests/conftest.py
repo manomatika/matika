@@ -12,7 +12,8 @@ else:
     os.environ["DATABASE_URL"] = f"sqlite:////{test_db_path.lstrip('/')}"
 
 from matika.database import get_db
-from matika.models import Base, User, UserSetting, SystemSetting, Role, pwd_context, user_roles
+from matika.models import Base, User, UserSetting, SystemSetting, Role, user_roles
+from matika.auth.service import get_password_hash
 from matika.main import create_app, init_plugins
 
 # Test database setup
@@ -110,7 +111,7 @@ def client(test_app, db):
 
 @pytest.fixture
 def test_user(db):
-    hashed_pwd = pwd_context.hash("testpassword")
+    hashed_pwd = get_password_hash("testpassword")
     user = User(
         username="testuser",
         email="test@example.com",
@@ -130,7 +131,7 @@ def test_user(db):
 
 @pytest.fixture
 def test_admin(db):
-    hashed_pwd = pwd_context.hash("adminpassword")
+    hashed_pwd = get_password_hash("adminpassword")
     user = User(
         username="adminuser",
         email="admin@example.com",

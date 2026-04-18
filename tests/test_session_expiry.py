@@ -1,7 +1,7 @@
 import pytest
 import time
 from unittest.mock import patch
-from matika.models import User, pwd_context
+from matika.models import User
 
 def test_session_expires_on_cookie_clear(client, db):
     """

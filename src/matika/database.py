@@ -4,7 +4,8 @@ from sqlalchemy.orm import sessionmaker, Session
 
 from .core.paths import BASE_DIR, ROOT_DIR
 from .core.constants import PageType, PermissionLevel
-from .models import Base, User, Role, Permission, SystemSetting, user_roles, pwd_context
+from .models import Base, User, Role, Permission, SystemSetting, user_roles
+from .auth.service import get_password_hash
 
 db_path = os.path.join(ROOT_DIR, "data", "matika.db")
 
@@ -84,7 +85,7 @@ def init_db(db: Session = None):
     # 4. Seed default admin user
     admin_user = db.query(User).filter(User.username == "admin").first()
     if not admin_user:
-        hashed_pwd = pwd_context.hash("adminpassword")
+        hashed_pwd = get_password_hash("adminpassword")
         admin_user = User(
             username="admin",
             email="admin@matika.local",

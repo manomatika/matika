@@ -1,7 +1,7 @@
 import os
+import bcrypt
 from datetime import datetime, timedelta
 from typing import Optional
-from passlib.context import CryptContext
 from authlib.integrations.starlette_client import OAuth
 from jose import jwt
 
@@ -11,15 +11,20 @@ ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 # 24 hours
 
 # --- PASSWORD HASHING ---
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-def verify_password(plain_password, hashed_password):
+def verify_password(plain_password: str, hashed_password: str):
     if not hashed_password:
         return False
-    return pwd_context.verify(plain_password, hashed_password)
+    try:
+        # bcrypt.checkpw expects bytes
+        return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
+    except Exception:
+        return False
 
-def get_password_hash(password):
-    return pwd_context.hash(password)
+def get_password_hash(password: str):
+    # bcrypt.hashpw expects bytes and returns bytes
+    salt = bcrypt.gensalt()
+    hashed = bcrypt.hashpw(password.encode('utf-8'), salt)
+    return hashed.decode('utf-8')
 
 # --- JWT TOKENS ---
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
