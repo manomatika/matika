@@ -1,4 +1,6 @@
-**Matika** | Version: **1.0.7** | Copyright (c) 2026 Patrick James Tallman. All Rights Reserved.
+**Matika** | Version: **v0.0.1** | Copyright (c) 2026 Patrick James Tallman
+
+
 
 # Matika Technical Architecture & Design
 
