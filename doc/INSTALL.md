@@ -1,6 +1,7 @@
 **Matika** | Version: **v0.0.1** | Copyright (c) 2026 Patrick James Tallman
 
 
+
 # Matika Installation Guide
 
 Thank you for choosing Matika! This guide will help you get the application running on your computer in just a few minutes.
