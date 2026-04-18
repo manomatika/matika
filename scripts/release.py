@@ -141,7 +141,8 @@ def main():
     print(f"[0/6] Updating local version files...")
     update_version_file(version)
     update_markdown_headers(version)
-    run(f"git add VERSION *.md **/ *.md") # Add all MD files and VERSION
+    run(f"git add VERSION")
+    run(f"git add -u") # Safely adds all modified tracked files (like the .md files)
     run(f'git commit -m "Bump version to {version} and update headers"')
     run(f"git push origin {current_branch}")
 
