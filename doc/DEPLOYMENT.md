@@ -1,68 +1,64 @@
-**Matika** | Version: **v0.0.1** | Copyright (c) 2026 Patrick James Tallman
-
-
+**Matika** | Version: **1.0.7** | Copyright (c) 2026 Patrick James Tallman
 
 # Matika Deployment & Installation Guide
 
-This document provides detailed instructions for deploying Matika in different environments, ranging from local development setups to professional production distributions.
+Matika is designed for seamless deployment across various environments. Its plugin-agnostic nature requires a specific workflow for managing extensions (AppLugs).
 
-## 1. Deployment Model Overview
-Matika is a monolithic application serving a **FastAPI** backend and a **TypeScript/Vanilla CSS** frontend. It is designed to be extensible via the **AppLug** plugin system.
+## 1. Deployment Model
+Matika operates as a central framework. In any given installation, the core remains identical, while the functionality is dictated by the contents of the `plugins/` directory.
 
-### Key Components:
-- **Backend:** Python 3.14+ utilizing FastAPI and SQLAlchemy.
-- **Frontend:** TypeScript assets compiled into static JavaScript.
-- **Plugins:** Dynamic "AppLugs" loaded from the `plugins/` directory.
-- **Database:** SQLite (default) for single-node simplicity.
+### Repository Policy:
+The `plugins/` directory in the Matika repository is **intentionally kept empty** (tracked via `.gitignore`). Plugins are considered external dependencies and are injected during the deployment/installation phase.
 
 ---
 
-## 2. Prerequisites
-Ensure the following are installed:
-- **Python 3.14+**
-- **Node.js (v18+) & NPM** (Required for frontend compilation)
-- **Git**
-- **uv** (Recommended) or **pip**
+## 2. Production Installation (Manual)
+
+### Step 1: Core Setup
+1. **Clone Core:** `git clone https://github.com/pjtallman/Matika.git`
+2. **Environment:**
+   ```bash
+   uv venv
+   source .venv/bin/activate
+   uv pip install -r requirements.txt
+   ```
+3. **Frontend Build:**
+   ```bash
+   npm install && npm run build
+   ```
+
+### Step 2: Plugin (AppLug) Deployment
+Choose the plugins required for this specific deployment.
+1. Navigate to the `plugins/` directory.
+2. Clone or symlink the desired plugins:
+   ```bash
+   # Example: Installing EyeRate
+   git clone https://github.com/pjtallman/eyerate.git eyerate
+   ```
+   *Note: On development machines, a symlink `ln -s ../../eyerate eyerate` is often preferred.*
+
+### Step 3: Initialization
+Start the server. Matika will:
+1. Initialize the database (SQLite by default).
+2. Scan the `plugins/` folder.
+3. Auto-provision roles and permissions defined in `applug.json` for each plugin.
+4. Mount plugin routes and merge localized strings.
 
 ---
 
-## 3. Installation Methods
+## 3. Automated Deployment (Build System)
 
-### Method A: Local/Development Setup
-Ideal for development environments or internal testing.
-1.  **Clone:** `git clone https://github.com/pjtallman/Matika.git`
-2.  **Install:** Run `python3 install.py`.
-3.  **Plugins:** See Section 4 for populating plugins.
-4.  **Reference:** See [INSTALL.md](INSTALL.md) for detailed OS-specific instructions.
-
-### Method B: Professional Production Build (Hatchling)
-Creates a clean distribution wheel.
-1.  **Frontend:** `npm install && npm run build`
-2.  **Build:** `uv build` or `python3 -m build`
-3.  **Install:** `pip install dist/matika-0.0.1-py3-none-any.whl`
+Using the included `scripts/release.py`:
+1. The script automates versioning and GitHub release creation.
+2. It generates a distribution wheel (`.whl`) for the core framework.
+3. For a full deployment, the build pipeline should package the core wheel along with the specific set of plugin wheels or source folders.
 
 ---
 
-## 4. Plugin Management (AppLugs)
-Matika does not come with plugins pre-installed. The `plugins/` directory is created automatically on first run.
+## 4. Environment Configuration
+- **DATABASE_URL:** Set this environment variable to use PostgreSQL or MySQL instead of SQLite.
+- **SECRET_KEY:** Required for production session security.
+- **GOOGLE_CLIENT_ID / GITHUB_CLIENT_ID:** Required if enabling Social OAuth.
 
-### To Install a Plugin:
-1.  Navigate to your Matika installation directory.
-2.  Locate the `plugins/` folder.
-3.  Clone or copy the plugin repository into a subdirectory here.
-    *   Example: `plugins/eyerate/`
-4.  Restart the Matika server.
-5.  Matika will automatically detect the plugin manifest (`applug.json`) and register its routes, models, and menu items.
-
----
-
-## 5. Production Hardening
-(Same as before: Nginx, Systemd, HA Scaling...)
-
----
-
-## 6. Native Standalone Installers
-For non-technical users on macOS or Windows.
-1.  Download the `.dmg` (macOS) or `.exe` (Windows) from the Releases page.
-2.  Follow the instructions in the included [INSTALL.md](INSTALL.md).
-3.  Place any desired plugins in the `plugins/` folder created in the application's data directory.
+## 5. Security Note (bcrypt)
+Matika utilizes direct **bcrypt** hashing to maintain compatibility with Python 3.14+ and ensure maximum security for user credentials. Old installations using `passlib` based hashes may require a password reset or migration if upgrading to 1.0.7+.

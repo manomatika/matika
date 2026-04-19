@@ -1,90 +1,65 @@
-**Matika** | Version: **v0.0.1** | Copyright (c) 2026 Patrick James Tallman
+**Matika** | Version: **1.0.7** | Copyright (c) 2026 Patrick James Tallman
 
+# Matika - Dynamic AppLug Framework
 
+Matika is a high-performance, plugin-agnostic framework built with **FastAPI** and **TypeScript**. It is designed to be a core foundation that can be extended dynamically via "AppLugs" (plugins) without the core framework having any prior knowledge of the extensions.
 
+## Core Features
 
+- **Dynamic Plugin Discovery:** Automatically discovers and loads plugins (AppLugs) from the `plugins/` directory at runtime.
+- **Unified Security Model:** Centralized Role-Based Access Control (RBAC) that plugins can hook into for permissions.
+- **Aggregated UI:** Automatically merges plugin menu items and templates into a seamless dashboard experience.
+- **Robust Authentication:** Secure user management with direct **bcrypt** hashing (optimized for Python 3.14+).
+- **Internationalization:** Built-in i18n support that allows plugins to contribute their own localized strings.
+- **Data Management:** Integrated system and user data export/import capabilities.
 
-# Matika
+## Architecture
 
-Matika is a high-performance yield tracking and security maintenance application built with FastAPI and TypeScript.
+Matika follows a "no-knowledge" architectural principle. The core repository is kept clean of specific domain logic, which is instead encapsulated within plugins.
 
-## Quick Start
+- **Backend:** FastAPI (Python)
+- **Database:** SQLAlchemy with SQLite (default) or PostgreSQL/MySQL support.
+- **Frontend:** TypeScript with Vanilla CSS (compiled to static JS).
+- **Extensibility:** `AppLugService` handles manifest (`applug.json`) parsing, route registration, and entity provisioning.
 
-1.  **Clone the Repository:**
-    ```bash
-    git clone https://github.com/pjtallman/matika.git
-    cd matika
-    ```
+## Getting Started
 
-2.  **Automated Installation:**
-    Matika provides a unified installer that handles environment setup, frontend building, and validation.
-    ```bash
-    # Mac/Linux:
-    python3 install.py
+### Prerequisites
+- Python 3.14+
+- Node.js & NPM
+- `uv` (recommended)
 
-    # Windows:
-    python install.py
-    ```
+### Installation
+1. **Setup Environment:**
+   ```bash
+   uv venv
+   source .venv/bin/activate
+   uv pip install -r requirements.txt
+   ```
+2. **Compile Frontend:**
+   ```bash
+   npm install
+   npm run build
+   ```
+3. **Run Application:**
+   ```bash
+   export PYTHONPATH=$PYTHONPATH:$(pwd)/src
+   python src/matika/main.py
+   ```
 
-3.  **Access the Application:**
-    Once the installer finishes, open your browser and navigate to:
-    `http://localhost:8000`
+## Plugin Development
+
+Matika looks for plugins in the `plugins/` folder. A standard plugin consists of:
+- `applug.json`: Manifest defining ID, version, and entry point.
+- `src/`: Plugin source code.
+- `eyerate_menu.json` (example): Menu contribution definitions.
+
+See the [EyeRate](https://github.com/pjtallman/eyerate) repository for a reference implementation.
 
 ## Documentation
+- [Installation Guide](doc/INSTALL.md)
+- [Deployment Guide](doc/DEPLOYMENT.md)
+- [Architecture Overview](doc/ARCHITECTURE.md)
 
-For more detailed information, please refer to the following guides:
-
-- [Technical Architecture & Design](doc/ARCHITECTURE.md) - Deep dive into the stack, folder structure, and data model.
-- [Deployment & Installation Guide](doc/DEPLOYMENT.md) - Detailed instructions for automated and manual setups on different OS.
-- [Automation Scripts](scripts/README.md) - Documentation for development lifecycle scripts (milestones, releases).
-
-## Features
-
-- **Real-time Security Tracking:** Lookup and maintain security data (ETFs, Stocks, Mutual Funds).
-- **Advanced Permissions:** Granular RBAC for pages and subjects (users/roles).
-- **Data Mobility:** Export and import system and user data for backup or migration.
-- **Internationalization:** Multi-language support (English, Spanish) with dynamic translation.
-- **Maintenance Activity Pattern:** Consistent UI for administrative and data-entry tasks.
-
-## Folder Structure
-
-The Matika project follows a modular "src layout" to separate source code, configuration, and data.
-
-```text
-/
-├── data/                   # Persistent storage (SQLite .db files and backups)
-├── doc/                    # Project documentation
-│   ├── ARCHITECTURE.md     # Technical design and data model
-│   ├── COPYRIGHT.txt       # Legal and licensing information
-│   ├── DEPLOYMENT.md       # Production setup and scaling guide
-│   ├── INSTALL.md          # Basic installation instructions
-│   └── INSTALL_GUIDE.txt   # Detailed step-by-step setup guide
-├── logs/                   # Application, startup, and test log files
-├── nginx/                  # Nginx configuration for reverse proxy setups
-├── scripts/                # Automation and utility scripts
-│   ├── build_standalone.py # Script to build standalone executables
-│   ├── install.py          # Unified installer and environment setup
-│   ├── launcher.py         # Entry point for standalone application
-│   ├── matika.spec         # PyInstaller specification for standalone builds
-│   ├── milestone_tasks.yaml # Task definitions for development milestones
-│   ├── release.py          # Release automation script
-│   ├── start_milestone.py  # Script to initialize a new milestone
-│   └── sync_version.py     # Utility to synchronize versions across files
-├── src/                    # Source code root
-│   ├── frontend/           # TypeScript source files (compiled to static/js)
-│   └── matika/             # Main Python package
-│       ├── auth/           # Authentication services and dependencies
-│       ├── core/           # Core utilities: logging, paths, and shared helpers
-│       ├── data_mgmt/      # Data export, import, and migration logic
-│       ├── deployment/     # Environment and deployment health checkers
-│       ├── locales/        # Translation JSON files (en.json, es.json)
-│       ├── metadata/       # Activity-specific UI and layout metadata
-│       ├── routers/        # FastAPI route definitions (admin, public, settings)
-│       ├── security/       # Authorization and RBAC services
-│       ├── static/         # Compiled JS, CSS, and user-uploaded assets
-│       ├── templates/      # Jinja2 HTML templates
-│       ├── database.py     # SQLAlchemy models and session management
-│       ├── i18n.py         # Internationalization and translation logic
-│       └── main.py         # Application entry point and app initialization
-└── tests/                  # Unit and integration test suite (pytest)
-```
+## License
+Copyright (c) 2026 Patrick James Tallman. All Rights Reserved.
