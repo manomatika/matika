@@ -39,7 +39,7 @@ Ideal for development environments or internal testing.
 Creates a clean distribution wheel.
 1.  **Frontend:** `npm install && npm run build`
 2.  **Build:** `uv build` or `python3 -m build`
-3.  **Install:** `pip install dist/matika-1.0.7-py3-none-any.whl`
+3.  **Install:** `pip install dist/matika-0.0.1-py3-none-any.whl`
 
 ---
 
