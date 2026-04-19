@@ -1,9 +1,9 @@
-milestone: "Milestone 1 - Initial refactor of matika out of rateeye"
-branch: "feat/milestone-1-Initial-refactor"
-description: "Initial refactor of matika out of rateeye"
+milestone: "Milestone 2 - Refactor menu architecture"
+branch: "feat/milestone-2-menu-refactor"
+description: "Refactor menu architecture"
 issues:
-  - title: "Initial refactor of matika out of rateeye"
-    labels: ["feature", "milestone-1"]
+  - title: "Refactor menu architecture"
+    labels: ["feature", "milestone-2"]
     description: |
-      Initial refactor of matika out of rateeye
+      Refactor menu architecture
     
