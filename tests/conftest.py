@@ -22,27 +22,22 @@ engine = create_engine(TEST_DATABASE_URL, connect_args={"check_same_thread": Fal
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 @pytest.fixture(scope="session", autouse=True)
-def setup_plugins():
-    # 1. Create plugins directory in PROJECT ROOT
-    from matika.core.paths import ROOT_DIR
+def setup_plugins(tmp_path_factory):
     import shutil
-    plugins_dir = os.path.join(ROOT_DIR, "plugins")
-    if os.path.exists(plugins_dir):
-        shutil.rmtree(plugins_dir)
-    os.makedirs(plugins_dir, exist_ok=True)
-    
-    # 2. Setup mock_plugin for Matika core system tests
+    # Use a pytest-managed temp directory so tests never touch the project's
+    # plugins/ folder (which may contain dev symlinks like eyerate).
+    test_plugins_dir = str(tmp_path_factory.mktemp("matika_plugins"))
+    os.environ["MATIKA_PLUGINS_DIR"] = test_plugins_dir
+
     mock_src = os.path.join(os.path.dirname(__file__), "plugins", "mock_plugin")
-    mock_dest = os.path.join(plugins_dir, "mock_plugin")
-    
+    mock_dest = os.path.join(test_plugins_dir, "mock_plugin")
     if os.path.exists(mock_src):
         shutil.copytree(mock_src, mock_dest)
-    
+
     yield
-    
-    # Cleanup plugins directory after all tests
-    if os.path.exists(plugins_dir):
-        shutil.rmtree(plugins_dir)
+
+    # Remove the env var; pytest auto-cleans tmp_path_factory directories.
+    os.environ.pop("MATIKA_PLUGINS_DIR", None)
 
 @pytest.fixture(scope="session", autouse=True)
 def setup_database(setup_plugins):

@@ -35,7 +35,3 @@ class BaseAppLug(ABC):
     def get_router(self) -> APIRouter:
         """Returns the FastAPI router for this plugin."""
         return self.router
-
-    def get_menu_items(self) -> List[Dict[str, Any]]:
-        """Returns menu items defined in the manifest."""
-        return self.manifest.get("menu_items", [])

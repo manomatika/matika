@@ -12,3 +12,15 @@ class PermissionLevel(str, Enum):
     READ = "Read"
     FULL = "Full"
     NONE = "None"
+
+class MenuType(str, Enum):
+    DEFAULT = "Default"
+    APPLICATION = "Application"
+    ROLE = "Role"
+    SYSTEM = "System"
+    FAVORITES = "Favorites"
+
+class MenuItemType(str, Enum):
+    LINK = "Link"
+    MENU = "Menu"
+    SEPARATOR = "Separator"

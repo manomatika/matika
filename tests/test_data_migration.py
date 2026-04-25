@@ -7,7 +7,7 @@ def test_export_data_page(client, test_admin, db):
     client.post("/login", data={"email": test_admin.email, "password": "adminpassword"})
     response = client.get("/settings/export")
     assert response.status_code == 200
-    assert "Export My Data" in response.text
+    assert "Export My Data" in response.text  # page heading uses heading_export_data, not link_export_data
 
 def test_export_data_filtered(client, test_admin, db):
     client.post("/login", data={"email": test_admin.email, "password": "adminpassword"})

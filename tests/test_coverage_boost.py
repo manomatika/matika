@@ -139,9 +139,10 @@ def test_applug_base_methods():
     class SimplePlugin(BaseAppLug):
         def on_load(self, db): pass
         def on_unload(self, db): pass
-    manifest = {"id": "simple", "version": "1.0", "menu_items": [{"label_key": "k", "href": "/h"}]}
+    manifest = {"id": "simple", "version": "1.0"}
     p = SimplePlugin(manifest)
-    assert p.get_menu_items()[0]["label_key"] == "k"
+    assert p.id == "simple"
+    assert p.version == "1.0"
     assert p.get_router() is not None
 
 def test_auth_setup_oauth():
@@ -176,7 +177,16 @@ def test_utils_load_metadata_no_file():
     meta = load_metadata("nothing", metadata_dir="/tmp/nonexistent")
     assert meta == {}
 
-def test_applug_service_empty_menu():
+def test_applug_service_menus_structure():
     from matika.core.applug_service import AppLugService
     s = AppLugService()
-    assert s.get_all_menu_items() == []
+    result = s.get_menus_for_context(user_roles=[], t={})
+    assert isinstance(result, dict)
+    assert "selector" in result
+    assert "hubs" in result
+    # Only "item"-type entries have an id; separators and headers do not.
+    selector_item_ids = [e["id"] for e in result["selector"] if e.get("type") == "item"]
+    assert "__default__" in selector_item_ids
+    assert "__favorites__" in selector_item_ids
+    assert "__default__" in result["hubs"]
+    assert "__favorites__" in result["hubs"]

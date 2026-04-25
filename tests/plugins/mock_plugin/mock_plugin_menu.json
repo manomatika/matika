@@ -1,0 +1,18 @@
+{
+    "schema_version": "1.0",
+    "menus": [
+        {
+            "id": "mock-main",
+            "label_key": "item_mock",
+            "type": "Application",
+            "items": [
+                {
+                    "type": "Link",
+                    "label_key": "item_mock",
+                    "href": "/admin/mock",
+                    "roles": ["Admin", "User"]
+                }
+            ]
+        }
+    ]
+}

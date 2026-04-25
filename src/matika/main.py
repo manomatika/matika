@@ -68,10 +68,14 @@ def create_app() -> FastAPI:
     def context_processor(request: Request):
         service = request.app.state.app_lug_service
         i18n = request.app.state.i18n
+        user = getattr(request.state, "user", None)
+        t = i18n.get_text(request.headers.get("accept-language"))
+        user_roles = [r.name for r in user.roles] if user else []
+        menus_data = service.get_menus_for_context(user_roles, t)
         return {
-            "plugin_menu_items": service.get_all_menu_items(),
-            "t": i18n.get_text(request.headers.get("accept-language")),
-            "user": getattr(request.state, "user", None)
+            "menus_data": menus_data,
+            "t": t,
+            "user": user,
         }
 
 

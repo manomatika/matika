@@ -101,3 +101,76 @@ def test_change_password_success(client, test_user):
     # Wait, the client uses a different db session (the one yielded by get_db override).
     # But our fixture 'db' is what we yielded in the override.
     assert verify_password("newpassword123", test_user.hashed_password)
+
+
+def test_force_password_change_login_redirects_to_form(client, db):
+    """Login with force_password_change=True must redirect directly to /change-password."""
+    hashed_pwd = get_password_hash("testpw")
+    user = User(
+        username="fpuser",
+        email="fp@example.com",
+        hashed_password=hashed_pwd,
+        is_authorized=True,
+        force_password_change=True,
+    )
+    db.add(user)
+    db.commit()
+
+    # Login must redirect to /change-password, not /
+    resp = client.post(
+        "/login",
+        data={"email": "fp@example.com", "password": "testpw"},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/change-password"
+
+
+def test_force_password_change_page_renders_form(client, db):
+    """The /change-password page must render the password form, not an empty dialog."""
+    hashed_pwd = get_password_hash("testpw")
+    user = User(
+        username="fpuser2",
+        email="fp2@example.com",
+        hashed_password=hashed_pwd,
+        is_authorized=True,
+        force_password_change=True,
+    )
+    db.add(user)
+    db.commit()
+
+    client.post("/login", data={"email": "fp2@example.com", "password": "testpw"})
+    resp = client.get("/change-password")
+    assert resp.status_code == 200
+
+    # The actual form fields must be present — not just a title/heading
+    assert 'action="/change-password"' in resp.text
+    assert 'name="new_password"' in resp.text
+    assert 'name="confirm_password"' in resp.text
+    assert 'type="password"' in resp.text
+
+
+def test_force_password_change_flag_cleared_after_change(client, db):
+    """After a successful password change, force_password_change must be False in the DB."""
+    hashed_pwd = get_password_hash("oldpw")
+    user = User(
+        username="fpuser3",
+        email="fp3@example.com",
+        hashed_password=hashed_pwd,
+        is_authorized=True,
+        force_password_change=True,
+    )
+    db.add(user)
+    db.commit()
+
+    client.post("/login", data={"email": "fp3@example.com", "password": "oldpw"})
+    resp = client.post(
+        "/change-password",
+        data={"new_password": "newpw1234", "confirm_password": "newpw1234"},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/"
+
+    db.refresh(user)
+    assert user.force_password_change is False
