@@ -1,5 +1,7 @@
 export {};
 
+import { getCsrfToken, injectCsrfToken } from "./csrf.js";
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -58,6 +60,7 @@ document.addEventListener("DOMContentLoaded", () => {
   renderSelectorList();
   renderHub();
   wireUserZone();
+  wireCsrfForms();
 
   document.addEventListener("click", handleGlobalClick);
 });
@@ -262,6 +265,18 @@ export function navigate(href: string, openNewTab?: boolean): void {
   } else {
     window.location.href = href;
   }
+}
+
+// ---------------------------------------------------------------------------
+// CSRF — auto-inject token into every form on submit
+// ---------------------------------------------------------------------------
+
+function wireCsrfForms(): void {
+    document.addEventListener("submit", (e: SubmitEvent) => {
+        const form = e.target as HTMLFormElement | null;
+        if (!form || form.method.toLowerCase() !== "post") return;
+        injectCsrfToken(form);
+    });
 }
 
 // ---------------------------------------------------------------------------

@@ -13,8 +13,30 @@ from ..database import get_db, get_system_setting
 from ..models import User, Role, Permission, SystemSetting
 from ..core.constants import PageType
 from ..auth.service import verify_password, get_password_hash
-from ..auth.dependencies import login_required
+from ..auth.dependencies import login_required, validate_csrf
 from ..security.service import check_page_permission
+
+_MAX_IMPORT_BYTES = 10 * 1024 * 1024   # 10 MB
+_MAX_PHOTO_BYTES  =  5 * 1024 * 1024   #  5 MB
+
+# Common image magic-byte signatures
+_IMAGE_MAGIC: list[tuple[bytes, int]] = [
+    (b"\xff\xd8\xff", 0),          # JPEG
+    (b"\x89PNG\r\n\x1a\n", 0),     # PNG
+    (b"GIF87a", 0),                # GIF87
+    (b"GIF89a", 0),                # GIF89
+    (b"RIFF", 0),                  # WebP (checked further below)
+    (b"\x00\x00\x01\x00", 0),      # ICO
+]
+
+def _is_image_by_magic(data: bytes) -> bool:
+    for sig, offset in _IMAGE_MAGIC:
+        if data[offset:offset + len(sig)] == sig:
+            # Additional WebP check
+            if sig == b"RIFF" and data[8:12] != b"WEBP":
+                continue
+            return True
+    return False
 from ..data_mgmt.export_import import get_activity_categories
 
 router = APIRouter(prefix="/settings", tags=[PageType.SETTINGS])
@@ -54,7 +76,10 @@ async def import_data_page(request: Request, user: User = Depends(check_page_per
 @router.post("/import")
 async def import_data(file: UploadFile = File(...), include_roles: bool = Form(False), user: User = Depends(check_page_permission), db: Session = Depends(get_db)):
     try:
-        data = json.loads(await file.read())
+        raw = await file.read(_MAX_IMPORT_BYTES + 1)
+        if len(raw) > _MAX_IMPORT_BYTES:
+            raise Exception("File too large (max 10 MB)")
+        data = json.loads(raw)
         if data.get("metadata", {}).get("type") != "user_data": raise Exception("Invalid file type")
         if include_roles and "roles" in data:
             for r in data["roles"]:
@@ -141,8 +166,11 @@ async def get_user_photo(user_id: int, db: Session = Depends(get_db)):
 
 @router.post("/user/upload-photo")
 async def upload_photo(file: UploadFile = File(...), user: User = Depends(login_required), db: Session = Depends(get_db)):
-    if not file.content_type.startswith("image/"): raise HTTPException(status_code=400, detail="Not an image")
-    content = await file.read()
+    content = await file.read(_MAX_PHOTO_BYTES + 1)
+    if len(content) > _MAX_PHOTO_BYTES:
+        raise HTTPException(status_code=400, detail="Image too large (max 5 MB)")
+    if not _is_image_by_magic(content):
+        raise HTTPException(status_code=400, detail="File is not a recognised image format")
     user.photo_blob = content
     user.photo_mime_type = file.content_type
     user.photo_url = f"/settings/user/photo/{user.id}"

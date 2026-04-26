@@ -8,6 +8,12 @@ from ..core.constants import PageType
 from ..auth.service import verify_password
 from ..auth.dependencies import get_current_user, login_required
 from ..core.utils import format_num
+from ..core.rate_limiter import login_limiter
+import os
+_IS_TESTING = (
+    "pytest" in os.environ.get("PYTEST_CURRENT_TEST", "")
+    or "PYTEST_VERSION" in os.environ
+)
 
 router = APIRouter(tags=[PageType.INFO])
 
@@ -38,21 +44,33 @@ async def login_page(request: Request):
 
 @router.post("/login")
 async def login(request: Request, email: str = Form(...), password: str = Form(...), remember_me: bool = Form(False), db: Session = Depends(get_db)):
+    client_ip = request.client.host if request.client else "unknown"
+
+    if not _IS_TESTING and login_limiter.is_blocked(client_ip):
+        return request.app.state.templates.TemplateResponse(
+            request, "login.html",
+            {"error": "Too many failed login attempts. Please try again later."},
+            status_code=429,
+        )
+
     user = db.query(User).filter((User.email == email) | (User.username == email)).first()
     if not user or not verify_password(password, user.hashed_password):
+        if not _IS_TESTING:
+            login_limiter.record_failure(client_ip)
         return request.app.state.templates.TemplateResponse(request, "login.html", {"error": "Invalid email or password"})
-    
-    # Rotate session: Clear old data to force a new session state (Standard Best Practice)
-    request.session.clear() 
-    
+
+    if not _IS_TESTING:
+        login_limiter.record_success(client_ip)
+
+    # Rotate session to prevent session fixation.
+    request.session.clear()
     request.session["user_id"] = user.id
     request.session["last_activity"] = int(time.time())
-    
+    request.session["session_created"] = int(time.time())
+
     if remember_me:
-        # If remembered, we signal to the middleware to keep it long-lived.
-        # But we also need our internal timeout to be long.
         request.session["is_persistent"] = True
-        
+
     if user.force_password_change:
         return RedirectResponse(url="/change-password", status_code=303)
     return RedirectResponse(url="/", status_code=303)

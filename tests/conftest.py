@@ -4,12 +4,14 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from fastapi.testclient import TestClient
 
-# Must set this before importing app or database
+# Must set these before importing app or database
 test_db_path = os.path.abspath(os.path.join("data", "test_matika.db"))
 if os.name == 'nt':
     os.environ["DATABASE_URL"] = f"sqlite:///{test_db_path}"
 else:
     os.environ["DATABASE_URL"] = f"sqlite:////{test_db_path.lstrip('/')}"
+
+os.environ.setdefault("SECRET_KEY", "test-only-secret-key-never-use-in-production")
 
 from matika.database import get_db
 from matika.models import Base, User, UserSetting, SystemSetting, Role, user_roles
