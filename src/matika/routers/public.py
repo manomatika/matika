@@ -24,18 +24,88 @@ async def home(request: Request, db: Session = Depends(get_db)):
         return RedirectResponse(url="/login", status_code=303)
     if user.force_password_change:
         return RedirectResponse(url="/change-password", status_code=303)
-    return request.app.state.templates.TemplateResponse(request, "index.html", {"user": user})
+
+    service = request.app.state.app_lug_service
+
+    # Per-plugin description map for the dashboard cards.
+    app_info = {
+        pid: {
+            "description": p.manifest.get("description", ""),
+            "version": p.manifest.get("version", ""),
+        }
+        for pid, p in service.loaded_plugins.items()
+    }
+
+    # System stats are only computed and shown for Admin users.
+    from ..models import Role, Permission
+    from ..database import DATABASE_URL, get_system_setting
+    is_admin = any(r.name == "Admin" for r in user.roles)
+    stats = None
+    if is_admin:
+        stats = {
+            "users":       db.query(User).count(),
+            "roles":       db.query(Role).count(),
+            "permissions": db.query(Permission).count(),
+            "plugins":     len(service.loaded_plugins),
+            "version":     get_system_setting(db, "version", "unknown"),
+            "db_type":     "SQLite" if DATABASE_URL.startswith("sqlite") else "PostgreSQL",
+        }
+
+    # Application selector entries visible to this user — filtered here so the
+    # template doesn't need Jinja2 namespace tricks for list building.
+    t  = request.app.state.i18n.get_text(request.headers.get("accept-language"))
+    md = service.get_menus_for_context([r.name for r in user.roles], t)
+    app_entries = [
+        e for e in md["selector"]
+        if e.get("type") == "item"
+        and e["id"] not in ("__default__", "__favorites__")
+        and not e["id"].startswith("__role_")
+    ]
+
+    return request.app.state.templates.TemplateResponse(request, "index.html", {
+        "user":        user,
+        "app_info":    app_info,
+        "app_entries": app_entries,
+        "hubs":        md["hubs"],
+        "stats":       stats,
+    })
 
 @router.get("/about", response_class=HTMLResponse)
 async def about(request: Request, db: Session = Depends(get_db)):
+    import sys
+    import fastapi, sqlalchemy, alembic, jinja2, starlette
     from ..database import get_system_setting
-    version = get_system_setting(db, "version", "0.0.1")
-    user = get_current_user(request, db)
-    plugins = request.app.state.app_lug_service.get_loaded_plugins()
+
+    version = get_system_setting(db, "version", "unknown")
+    user    = get_current_user(request, db)
+    service = request.app.state.app_lug_service
+
+    # Full plugin details from manifests.
+    plugins = [
+        {
+            "id":          pid,
+            "name":        p.manifest.get("display_name") or p.manifest.get("name", pid),
+            "full_name":   p.manifest.get("name", pid),
+            "version":     p.manifest.get("version", ""),
+            "description": p.manifest.get("description", ""),
+        }
+        for pid, p in service.loaded_plugins.items()
+    ]
+
+    components = [
+        ("Python",       sys.version.split()[0]),
+        ("FastAPI",      fastapi.__version__),
+        ("SQLAlchemy",   sqlalchemy.__version__),
+        ("Alembic",      alembic.__version__),
+        ("Jinja2",       jinja2.__version__),
+        ("Starlette",    starlette.__version__),
+    ]
+
     return request.app.state.templates.TemplateResponse(request, "about.html", {
-        "version": version, 
-        "user": user,
-        "plugins": plugins
+        "version":    version,
+        "user":       user,
+        "plugins":    plugins,
+        "components": components,
     })
 
 @router.get("/login", response_class=HTMLResponse)

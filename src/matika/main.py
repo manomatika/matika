@@ -100,11 +100,21 @@ def create_app() -> FastAPI:
             csrf_token = secrets.token_urlsafe(32)
             request.session["csrf_token"] = csrf_token
 
+        # User default menu preference (from user_settings table, eager-loaded).
+        user_default_menu = ""
+        if user:
+            for s in user.settings:
+                if s.name == "default_menu":
+                    user_default_menu = s.value or ""
+                    break
+
         return {
             "menus_data": menus_data,
             "t": t,
             "user": user,
             "csrf_token": csrf_token,
+            "user_id": user.id if user else "",
+            "user_default_menu": user_default_menu,
         }
 
     templates.context_processors.append(context_processor)

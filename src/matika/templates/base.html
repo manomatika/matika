@@ -4,6 +4,8 @@
     <link rel="stylesheet" href="/static/css/style.css">
     <title>{% block title %}{{ t.title }}{% endblock %}</title>
     <meta name="csrf-token" content="{{ csrf_token | default('') }}">
+    <meta name="user-id" content="{{ user_id | default('') }}">
+    <meta name="user-default-menu" content="{{ user_default_menu | default('') }}">
     <style>
         /* User-zone dropdown separator (inline to avoid coupling to hub styles) */
         .menu-zone-user .dropdown div.menu-separator {

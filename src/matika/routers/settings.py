@@ -9,7 +9,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from sqlalchemy.orm import Session, selectinload
 
 from ..core.paths import BASE_DIR
-from ..database import get_db, get_system_setting
+from ..database import get_db, get_system_setting, get_user_setting, set_user_setting
 from ..models import User, Role, Permission, SystemSetting
 from ..core.constants import PageType
 from ..auth.service import verify_password, get_password_hash
@@ -43,8 +43,16 @@ router = APIRouter(prefix="/settings", tags=[PageType.SETTINGS])
 logger = logging.getLogger(__name__)
 
 @router.get("/user", response_class=HTMLResponse)
-async def user_settings_page(request: Request, user: User = Depends(check_page_permission)):
-    return request.app.state.templates.TemplateResponse(request, "user_settings.html", {"user": user})
+async def user_settings_page(request: Request, user: User = Depends(check_page_permission), db: Session = Depends(get_db)):
+    user_default_menu = next(
+        (s.value for s in user.settings if s.name == "default_menu"), ""
+    )
+    return request.app.state.templates.TemplateResponse(request, "user_settings.html", {
+        "user": user,
+        "user_default_menu": user_default_menu,
+        "saved": request.query_params.get("saved"),
+        "error_key": request.query_params.get("error"),
+    })
 
 @router.get("/export", response_class=HTMLResponse)
 async def export_data_page(request: Request, user: User = Depends(check_page_permission), db: Session = Depends(get_db)):
@@ -138,10 +146,9 @@ async def user_change_username_page(request: Request, user: User = Depends(check
 @router.post("/user/change-username")
 async def user_change_username(request: Request, new_username: str = Form(...), user: User = Depends(login_required), db: Session = Depends(get_db)):
     if db.query(User).filter(User.username == new_username).first():
-        t = request.app.state.i18n.get_text(request.headers.get("accept-language"))
-        return request.app.state.templates.TemplateResponse(request, "user_change_username.html", {"user": user, "error": t.get("err_username_taken")})
+        return RedirectResponse(url="/settings/user?error=username_taken", status_code=303)
     user.username = new_username; db.commit()
-    return RedirectResponse(url="/settings/user", status_code=303)
+    return RedirectResponse(url="/settings/user?saved=username", status_code=303)
 
 @router.get("/user/change-password", response_class=HTMLResponse)
 async def user_change_password_page(request: Request, user: User = Depends(check_page_permission)):
@@ -149,13 +156,23 @@ async def user_change_password_page(request: Request, user: User = Depends(check
 
 @router.post("/user/change-password")
 async def user_change_password(request: Request, current_password: str = Form(...), new_password: str = Form(...), confirm_password: str = Form(...), user: User = Depends(login_required), db: Session = Depends(get_db)):
-    t = request.app.state.i18n.get_text(request.headers.get("accept-language"))
     if not verify_password(current_password, user.hashed_password):
-        return request.app.state.templates.TemplateResponse(request, "user_change_password.html", {"user": user, "error": t.get("err_current_password_incorrect")})
+        return RedirectResponse(url="/settings/user?error=current_password_incorrect", status_code=303)
     if new_password != confirm_password:
-        return request.app.state.templates.TemplateResponse(request, "user_change_password.html", {"user": user, "error": t.get("err_passwords_mismatch")})
+        return RedirectResponse(url="/settings/user?error=passwords_mismatch", status_code=303)
     user.hashed_password = get_password_hash(new_password); db.commit()
-    return RedirectResponse(url="/settings/user", status_code=303)
+    return RedirectResponse(url="/settings/user?saved=password", status_code=303)
+
+@router.post("/user/default-menu")
+async def save_default_menu(
+    default_menu: str = Form(""),
+    user: User = Depends(login_required),
+    _csrf=Depends(validate_csrf),
+    db: Session = Depends(get_db),
+):
+    set_user_setting(db, user.id, "default_menu", default_menu.strip())
+    return RedirectResponse(url="/settings/user?saved=menu", status_code=303)
+
 
 @router.get("/user/photo/{user_id}")
 async def get_user_photo(user_id: int, db: Session = Depends(get_db)):
@@ -175,4 +192,4 @@ async def upload_photo(file: UploadFile = File(...), user: User = Depends(login_
     user.photo_mime_type = file.content_type
     user.photo_url = f"/settings/user/photo/{user.id}"
     db.commit()
-    return RedirectResponse(url="/settings/user", status_code=303)
+    return RedirectResponse(url="/settings/user?saved=photo", status_code=303)

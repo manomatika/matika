@@ -130,6 +130,26 @@ def get_system_setting(db: Session, name: str, default: str):
     res = db.query(SystemSetting).filter(SystemSetting.name == name).first()
     return res.value if res else default
 
+def get_user_setting(db: Session, user_id: int, name: str, default: str = "") -> str:
+    from .models import UserSetting
+    res = db.query(UserSetting).filter(
+        UserSetting.user_id == user_id,
+        UserSetting.name == name,
+    ).first()
+    return res.value if res else default
+
+def set_user_setting(db: Session, user_id: int, name: str, value: str) -> None:
+    from .models import UserSetting
+    existing = db.query(UserSetting).filter(
+        UserSetting.user_id == user_id,
+        UserSetting.name == name,
+    ).first()
+    if existing:
+        existing.value = value
+    else:
+        db.add(UserSetting(user_id=user_id, name=name, value=value))
+    db.commit()
+
 def get_pages():
     """Returns the master list of pages, their types, and their translation keys."""
     return [

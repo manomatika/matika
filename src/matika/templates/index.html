@@ -1,8 +1,92 @@
 {% extends "base.html" %}
 
+{% block title %}{{ t.title }}{% endblock %}
+
 {% block content %}
-<div class="home-container">
-    <h1>{{ t.title }}</h1>
-    <p>{{ t.msg_welcome }}</p>
+<div class="hp-page">
+
+    {# ── Welcome banner ── #}
+    <div class="hp-welcome">
+        <div class="hp-welcome-left">
+            <div class="hp-welcome-greeting">
+                {{ t.msg_welcome_back }} <span class="hp-welcome-name">{{ user.username }}</span>
+            </div>
+            <div class="hp-welcome-meta">
+                {{ user.email }}
+                {% if user.roles %} · {{ user.roles | map(attribute='name') | join(', ') }}{% endif %}
+            </div>
+        </div>
+        {% if stats %}
+        <div class="hp-welcome-version">v{{ stats.version }}</div>
+        {% endif %}
+    </div>
+
+    {# ── System overview (admin only) ── #}
+    {% if stats %}
+    <div class="hp-section-label">{{ t.heading_system_overview }}</div>
+    <div class="hp-stats-row">
+        <div class="hp-stat">
+            <span class="hp-stat-value">{{ stats.users }}</span>
+            <span class="hp-stat-label">{{ t.label_stat_users }}</span>
+        </div>
+        <div class="hp-stat">
+            <span class="hp-stat-value">{{ stats.roles }}</span>
+            <span class="hp-stat-label">{{ t.item_roles }}</span>
+        </div>
+        <div class="hp-stat">
+            <span class="hp-stat-value">{{ stats.permissions }}</span>
+            <span class="hp-stat-label">{{ t.label_stat_permissions }}</span>
+        </div>
+        <div class="hp-stat">
+            <span class="hp-stat-value">{{ stats.plugins }}</span>
+            <span class="hp-stat-label">{{ t.label_stat_plugins }}</span>
+        </div>
+        <div class="hp-stat hp-stat-text">
+            <span class="hp-stat-value hp-stat-value-sm">{{ stats.db_type }}</span>
+            <span class="hp-stat-label">{{ t.label_stat_database }}</span>
+        </div>
+    </div>
+    {% endif %}
+
+    {# ── Application cards ── #}
+    {% if app_entries %}
+    <div class="hp-section-label">{{ t.heading_your_applications }}</div>
+    <div class="hp-app-grid">
+        {% for entry in app_entries %}
+        {% set hub_items = hubs.get(entry.id, []) %}
+        {% set info = app_info.get(entry.id, {}) %}
+        <div class="hp-app-card">
+            <div class="hp-app-header">
+                <div class="hp-app-icon">{{ entry.label[:1].upper() }}</div>
+                <div class="hp-app-header-text">
+                    <div class="hp-app-name">{{ entry.label }}</div>
+                    {% if info.get("description") %}
+                    <div class="hp-app-desc">{{ info.description }}</div>
+                    {% endif %}
+                </div>
+            </div>
+            {% if hub_items %}
+            <ul class="hp-app-links">
+                {% for menu in hub_items %}
+                    {% if menu.type == "Menu" %}
+                        {% for item in menu['items'] %}
+                            {% if item.type == "Link" %}
+                            <li><a href="{{ item.href }}" class="hp-link">{{ item.label }}</a></li>
+                            {% endif %}
+                        {% endfor %}
+                    {% elif menu.type == "Link" %}
+                    <li><a href="{{ menu.href }}" class="hp-link">{{ menu.label }}</a></li>
+                    {% endif %}
+                {% endfor %}
+            </ul>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+
+    {% else %}
+    <div class="hp-empty">{{ t.label_no_applications }}</div>
+    {% endif %}
+
 </div>
 {% endblock %}

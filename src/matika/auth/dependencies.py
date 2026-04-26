@@ -39,8 +39,11 @@ def get_current_user(request: Request, db: Session = Depends(get_db)):
     # Update last activity
     request.session["last_activity"] = now
     
-    # Eager load roles to avoid DetachedInstanceError in templates
-    user = db.query(User).options(subqueryload(User.roles)).filter(User.id == user_id).first()
+    # Eager load roles and settings to avoid DetachedInstanceError in templates
+    user = db.query(User).options(
+        subqueryload(User.roles),
+        subqueryload(User.settings),
+    ).filter(User.id == user_id).first()
     
     if not user:
         request.session.clear()

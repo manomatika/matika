@@ -47,12 +47,29 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  // Set active hub to the first selectable item (always "__default__")
+  // Restore the selector choice, honouring this priority order:
+  //   1. sessionStorage  — user navigated within this session (per-user key)
+  //   2. user-default-menu meta — user's saved preference (from User Settings)
+  //   3. First item in the selector list (Default)
+  //
+  // Per-user keying prevents two users sharing a browser tab from seeing
+  // each other's last selection.
   if (menusData) {
-    const first = menusData.selector.find(
+    const selectorItems = menusData.selector.filter(
       (e): e is { type: "item"; id: string; label: string } => e.type === "item"
     );
-    if (first) activeHubId = first.id;
+    const storageKey = getHubStorageKey();
+    const stored     = sessionStorage.getItem(storageKey);
+    const userPref   = document.querySelector<HTMLMetaElement>('meta[name="user-default-menu"]')?.content ?? "";
+
+    const validStored = stored  && selectorItems.some((e) => e.id === stored);
+    const validPref   = userPref && selectorItems.some((e) => e.id === userPref);
+
+    activeHubId = validStored
+      ? stored
+      : validPref
+        ? userPref
+        : (selectorItems[0]?.id ?? "__default__");
   }
 
   initSelector();
@@ -142,8 +159,14 @@ export function renderSelectorList(): void {
   });
 }
 
+function getHubStorageKey(): string {
+  const uid = document.querySelector<HTMLMetaElement>('meta[name="user-id"]')?.content ?? "";
+  return uid ? `matika_active_hub_${uid}` : "matika_active_hub";
+}
+
 function selectHub(hubId: string): void {
   activeHubId = hubId;
+  sessionStorage.setItem(getHubStorageKey(), hubId);
   selectorOpen = false;
   applyPanelState();
   renderTrigger();
