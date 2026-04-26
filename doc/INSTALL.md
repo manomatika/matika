@@ -1,82 +1,123 @@
-**Matika** | Version: **1.0.7** | Copyright (c) 2026 Patrick James Tallman
+**Matika** | Version: **0.0.2_dev** | Copyright (c) 2026 Patrick James Tallman
 
 # Matika Installation Guide
 
-Matika can be installed as a standalone application using native installers or setup manually from source for development.
-
-## 1. Standalone Installation (Recommended for Users)
+## 1. Standalone Installation (Recommended for End Users)
 
 ### macOS (.dmg)
-1. **Download:** Get the latest `matika-macos.dmg` from the Releases page.
-2. **Install:** Drag the Matika icon to your `Applications` folder.
-3. **Launch:** Open Matika from your Applications. If you see a security warning, go to **System Settings > Privacy & Security** and click **Open Anyway**.
+1. Download the latest `matika-macos.dmg` from the Releases page.
+2. Drag the Matika icon to `Applications`.
+3. On first launch, if macOS shows a security warning go to **System Settings → Privacy & Security → Open Anyway**.
 
 ### Windows (.exe)
-1. **Download:** Get the latest `matika-setup.exe`.
-2. **Install:** Run the installer and follow the prompts.
-3. **Launch:** Use the Desktop shortcut to start the application.
+1. Download the latest `matika-setup.exe`.
+2. Run the installer and follow the prompts.
+3. Use the Desktop shortcut to start.
 
 ---
 
-## 2. Manual Installation (For Developers)
+## 2. Manual Installation (Developers)
 
 ### Prerequisites
-- **Python 3.14+**
-- **Node.js 18+**
-- **uv** (Optional but recommended)
+- Python 3.14+
+- Node.js 18+
+- `uv` (recommended: `pip install uv`)
 
-### Step-by-Step Setup
-1. **Clone Repository:**
-   ```bash
-   git clone https://github.com/pjtallman/Matika.git
-   cd Matika
-   ```
+### Step-by-Step
 
-2. **Setup Virtual Environment:**
-   ```bash
-   uv venv
-   source .venv/bin/activate  # macOS/Linux
-   .venv\Scripts\activate     # Windows
-   ```
+```bash
+# 1. Clone
+git clone https://github.com/pjtallman/Matika.git
+cd Matika
 
-3. **Install Dependencies:**
-   ```bash
-   uv pip install -r requirements.txt
-   ```
+# 2. Virtual environment
+uv venv
+source .venv/bin/activate        # macOS/Linux
+.venv\Scripts\activate           # Windows
 
-4. **Build Frontend Assets:**
-   ```bash
-   npm install
-   npm run build
-   ```
+# 3. Python dependencies
+uv pip install -r requirements.txt
 
-5. **Start Server:**
-   ```bash
-   export PYTHONPATH=$PYTHONPATH:$(pwd)/src
-   python src/matika/main.py
-   ```
+# 4. Frontend build
+npm install
+npm run build
 
----
+# 5. Environment — SECRET_KEY is required; the app refuses to start without it
+cp .env.example .env
+# Edit .env and set SECRET_KEY to the output of:
+python3 -c "import secrets; print(secrets.token_urlsafe(64))"
 
-## 3. Accessing the Application
-Open your browser and navigate to: **http://127.0.0.1:8000**
+# 6. Apply database migrations
+export $(cat .env | xargs)
+PYTHONPATH=src alembic upgrade head
+
+# 7. Start server
+PYTHONPATH=src uvicorn matika.main:app --host 127.0.0.1 --port 8000 --reload
+```
+
+Open **http://127.0.0.1:8000** in your browser.
 
 ### Initial Admin Credentials
 - **Username:** `admin`
 - **Password:** `adminpassword`
-- *Note: You will be prompted to change this password on your first login.*
+
+You will be prompted to change this password on first login.
 
 ---
 
-## 4. Managing Plugins
-Matika is a framework. To add functionality:
-1. Navigate to the `plugins/` directory.
-2. Add your plugin folders (e.g., `eyerate`).
-3. Restart the server.
+## 3. PostgreSQL Setup (Multi-User / Production)
+
+By default Matika uses SQLite. To switch to PostgreSQL:
+
+```bash
+# Add to .env:
+DATABASE_URL=postgresql://user:password@host:5432/matika_db
+
+# Apply migrations against PostgreSQL:
+PYTHONPATH=src alembic upgrade head
+```
+
+No code changes are needed — the ORM dialect switches automatically.
 
 ---
 
-## 5. Troubleshooting
-- **ModuleNotFoundError:** Ensure your `PYTHONPATH` includes the `src` directory.
-- **Port 8000 Busy:** Kill any existing `uvicorn` or `python` processes running on that port.
-- **Bcrypt Errors:** Ensure you are using Python 3.14+ and have the latest `bcrypt` package installed.
+## 4. Plugin (AppLug) Installation
+
+```bash
+cd plugins/
+
+# Clone a plugin
+git clone https://github.com/pjtallman/eyerate.git eyerate
+
+# Or symlink for development (when repos are siblings)
+ln -sf ../../eyerate eyerate
+```
+
+Restart the server. Matika auto-discovers plugins, seeds their permissions, and adds their menus.
+
+---
+
+## 5. Database Migrations
+
+Matika uses **Alembic** for versioned schema migrations. Always run this after pulling updates that include model changes:
+
+```bash
+PYTHONPATH=src alembic upgrade head
+```
+
+To check what revision the database is at:
+```bash
+PYTHONPATH=src alembic current
+```
+
+---
+
+## 6. Troubleshooting
+
+| Symptom | Fix |
+|---|---|
+| `CRITICAL: SECRET_KEY environment variable is not set` | Copy `.env.example` to `.env` and generate a key |
+| `ModuleNotFoundError` | Ensure `PYTHONPATH` includes `src/` |
+| Port 8000 already in use | `pkill -f "uvicorn matika"` |
+| `bcrypt` errors | Verify Python 3.14+ and latest `bcrypt` package |
+| `alembic.util.exc.CommandError: Can't locate revision` | Run `alembic stamp base` then `alembic upgrade head` on a fresh DB |

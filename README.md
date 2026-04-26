@@ -1,65 +1,71 @@
-**Matika** | Version: **1.0.7** | Copyright (c) 2026 Patrick James Tallman
+**Matika** | Version: **0.0.2_dev** | Copyright (c) 2026 Patrick James Tallman
 
-# Matika - Dynamic AppLug Framework
+# Matika — Dynamic AppLug Framework
 
-Matika is a high-performance, plugin-agnostic framework built with **FastAPI** and **TypeScript**. It is designed to be a core foundation that can be extended dynamically via "AppLugs" (plugins) without the core framework having any prior knowledge of the extensions.
+Matika is a high-performance, plugin-agnostic framework built with **FastAPI** and **TypeScript**. The core provides authentication, RBAC, dynamic navigation, and security; all business logic lives in **AppLugs** (plugins) that the framework discovers at runtime without any prior knowledge of them.
 
 ## Core Features
 
-- **Dynamic Plugin Discovery:** Automatically discovers and loads plugins (AppLugs) from the `plugins/` directory at runtime.
-- **Unified Security Model:** Centralized Role-Based Access Control (RBAC) that plugins can hook into for permissions.
-- **Aggregated UI:** Automatically merges plugin menu items and templates into a seamless dashboard experience.
-- **Robust Authentication:** Secure user management with direct **bcrypt** hashing (optimized for Python 3.14+).
-- **Internationalization:** Built-in i18n support that allows plugins to contribute their own localized strings.
-- **Data Management:** Integrated system and user data export/import capabilities.
+- **Dynamic Plugin Discovery** — AppLugs loaded from `plugins/` at startup; routes, menus, permissions, and i18n strings merged automatically.
+- **Menu Hub** — Three-zone navigation bar with a structured selector (Default / Favorites / Applications / Roles), click-to-toggle hub dropdowns, and role-based menu caching built from the permissions database.
+- **RBAC** — Centralized Role-Based Access Control with per-request permission checks. Permissions table indexed for O(log n) lookups.
+- **Security** — CSRF protection on all authenticated POST routes; login rate limiting; security headers; file upload size limits and magic-byte validation; hard-required `SECRET_KEY`.
+- **Authentication** — bcrypt password hashing, JWT, OAuth (Google / GitHub). Session cookies with idle timeout and 30-day absolute cap.
+- **Database Portability** — Pure SQLAlchemy ORM; zero raw SQL. Switch from SQLite to PostgreSQL with one environment variable. Alembic for versioned migrations.
+- **Internationalization** — Core strings + per-plugin locale overrides merged at runtime.
+- **Data Management** — User and system data export/import (10 MB file limit).
 
 ## Architecture
 
-Matika follows a "no-knowledge" architectural principle. The core repository is kept clean of specific domain logic, which is instead encapsulated within plugins.
+```
+[Plugins: applug.json + *_menu.json + Python code]
+         ↕ runtime discovery
+[Matika Core: FastAPI + SQLAlchemy + Jinja2 + TypeScript]
+         ↕ DATABASE_URL
+[SQLite (dev) | PostgreSQL/MySQL (production)]
+```
 
-- **Backend:** FastAPI (Python)
-- **Database:** SQLAlchemy with SQLite (default) or PostgreSQL/MySQL support.
-- **Frontend:** TypeScript with Vanilla CSS (compiled to static JS).
-- **Extensibility:** `AppLugService` handles manifest (`applug.json`) parsing, route registration, and entity provisioning.
+See [Architecture Overview](doc/ARCHITECTURE.md) for the full technical design.
 
-## Getting Started
+## Quick Start
 
-### Prerequisites
-- Python 3.14+
-- Node.js & NPM
-- `uv` (recommended)
+```bash
+# Setup
+uv venv && source .venv/bin/activate
+uv pip install -r requirements.txt
+npm install && npm run build
 
-### Installation
-1. **Setup Environment:**
-   ```bash
-   uv venv
-   source .venv/bin/activate
-   uv pip install -r requirements.txt
-   ```
-2. **Compile Frontend:**
-   ```bash
-   npm install
-   npm run build
-   ```
-3. **Run Application:**
-   ```bash
-   export PYTHONPATH=$PYTHONPATH:$(pwd)/src
-   python src/matika/main.py
-   ```
+# Required: generate a secret key
+export SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(64))")
+
+# Migrations
+PYTHONPATH=src alembic upgrade head
+
+# Run
+PYTHONPATH=src uvicorn matika.main:app --host 127.0.0.1 --port 8000 --reload
+```
+
+Open **http://127.0.0.1:8000** — log in with `admin` / `adminpassword` (password change required on first login).
 
 ## Plugin Development
 
-Matika looks for plugins in the `plugins/` folder. A standard plugin consists of:
-- `applug.json`: Manifest defining ID, version, and entry point.
-- `src/`: Plugin source code.
-- `eyerate_menu.json` (example): Menu contribution definitions.
+A minimal AppLug requires:
 
-See the [EyeRate](https://github.com/pjtallman/eyerate) repository for a reference implementation.
+| File | Purpose |
+|---|---|
+| `applug.json` | Manifest: id, version, name, display_name, entry_point, permissions |
+| `<id>_menu.json` | Menu metadata (schema v1.0; MenuType: Application/Role/System/Favorites) |
+| Python class extending `BaseAppLug` | `on_load(db)` + `on_unload(db)` |
+
+See [EyeRate](https://github.com/pjtallman/eyerate) for the reference implementation.
 
 ## Documentation
-- [Installation Guide](doc/INSTALL.md)
-- [Deployment Guide](doc/DEPLOYMENT.md)
-- [Architecture Overview](doc/ARCHITECTURE.md)
+
+| Document | Description |
+|---|---|
+| [INSTALL.md](doc/INSTALL.md) | Step-by-step installation for developers and end users |
+| [DEPLOYMENT.md](doc/DEPLOYMENT.md) | Production deployment, PostgreSQL setup, migrations, zero-downtime |
+| [ARCHITECTURE.md](doc/ARCHITECTURE.md) | Full technical architecture, persistence layer, security model |
 
 ## License
 Copyright (c) 2026 Patrick James Tallman. All Rights Reserved.

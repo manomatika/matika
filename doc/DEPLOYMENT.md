@@ -1,64 +1,135 @@
-**Matika** | Version: **1.0.7** | Copyright (c) 2026 Patrick James Tallman
+**Matika** | Version: **0.0.2_dev** | Copyright (c) 2026 Patrick James Tallman
 
-# Matika Deployment & Installation Guide
-
-Matika is designed for seamless deployment across various environments. Its plugin-agnostic nature requires a specific workflow for managing extensions (AppLugs).
+# Matika Deployment Guide
 
 ## 1. Deployment Model
-Matika operates as a central framework. In any given installation, the core remains identical, while the functionality is dictated by the contents of the `plugins/` directory.
 
-### Repository Policy:
-The `plugins/` directory in the Matika repository is **intentionally kept empty** (tracked via `.gitignore`). Plugins are considered external dependencies and are injected during the deployment/installation phase.
+Matika is a stateless FastAPI application. The `plugins/` directory is **intentionally empty** in the core repository; plugins are injected at deployment time. This means a single core codebase can power many distinct product configurations depending on which plugins are installed.
 
 ---
 
-## 2. Production Installation (Manual)
+## 2. Environment Variables
 
-### Step 1: Core Setup
-1. **Clone Core:** `git clone https://github.com/pjtallman/Matika.git`
-2. **Environment:**
-   ```bash
-   uv venv
-   source .venv/bin/activate
-   uv pip install -r requirements.txt
-   ```
-3. **Frontend Build:**
-   ```bash
-   npm install && npm run build
-   ```
+| Variable | Required | Description |
+|---|---|---|
+| `SECRET_KEY` | **Required** | Secures session cookies and CSRF tokens. Generate with `python3 -c "import secrets; print(secrets.token_urlsafe(64))"`. Never use a default. |
+| `DATABASE_URL` | Optional | SQLite (default) or `postgresql://user:pass@host/db`. Switching databases requires no code changes. |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Optional | Enable Google OAuth |
+| `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | Optional | Enable GitHub OAuth |
+| `MATIKA_PLUGINS_DIR` | Optional | Override the plugin directory path (used by the test suite; leave unset in production) |
 
-### Step 2: Plugin (AppLug) Deployment
-Choose the plugins required for this specific deployment.
-1. Navigate to the `plugins/` directory.
-2. Clone or symlink the desired plugins:
-   ```bash
-   # Example: Installing EyeRate
-   git clone https://github.com/pjtallman/eyerate.git eyerate
-   ```
-   *Note: On development machines, a symlink `ln -s ../../eyerate eyerate` is often preferred.*
-
-### Step 3: Initialization
-Start the server. Matika will:
-1. Initialize the database (SQLite by default).
-2. Scan the `plugins/` folder.
-3. Auto-provision roles and permissions defined in `applug.json` for each plugin.
-4. Mount plugin routes and merge localized strings.
+Copy `.env.example` to `.env` and populate before starting.
 
 ---
 
-## 3. Automated Deployment (Build System)
+## 3. Production Setup (Manual)
 
-Using the included `scripts/release.py`:
-1. The script automates versioning and GitHub release creation.
-2. It generates a distribution wheel (`.whl`) for the core framework.
-3. For a full deployment, the build pipeline should package the core wheel along with the specific set of plugin wheels or source folders.
+```bash
+# 1. Clone core
+git clone https://github.com/pjtallman/Matika.git && cd Matika
+
+# 2. Python environment
+uv venv && source .venv/bin/activate
+uv pip install -r requirements.txt
+
+# 3. Frontend
+npm install && npm run build
+
+# 4. Plugins
+cd plugins/
+git clone https://github.com/pjtallman/eyerate.git eyerate
+cd ..
+
+# 5. Environment
+cp .env.example .env
+# → Set SECRET_KEY and DATABASE_URL in .env
+
+# 6. Migrations
+export $(cat .env | xargs)
+PYTHONPATH=src alembic upgrade head
+
+# 7. Start
+PYTHONPATH=src uvicorn matika.main:app --host 0.0.0.0 --port 8000 --workers 4
+```
 
 ---
 
-## 4. Environment Configuration
-- **DATABASE_URL:** Set this environment variable to use PostgreSQL or MySQL instead of SQLite.
-- **SECRET_KEY:** Required for production session security.
-- **GOOGLE_CLIENT_ID / GITHUB_CLIENT_ID:** Required if enabling Social OAuth.
+## 4. Docker Deployment
 
-## 5. Security Note (bcrypt)
-Matika utilizes direct **bcrypt** hashing to maintain compatibility with Python 3.14+ and ensure maximum security for user credentials. Old installations using `passlib` based hashes may require a password reset or migration if upgrading to 1.0.7+.
+```bash
+docker-compose up -d
+```
+
+Set `SECRET_KEY` and optionally `DATABASE_URL` in `docker-compose.yml` environment section. The image runs `uvicorn matika.main:app --host 0.0.0.0 --port 8000` internally.
+
+**Important:** Run migrations before starting new containers that contain schema changes:
+```bash
+docker-compose run --rm app sh -c "PYTHONPATH=src alembic upgrade head"
+```
+
+---
+
+## 5. PostgreSQL for Multi-User Deployments
+
+SQLite is appropriate for single-user or desktop installations. For shared servers:
+
+1. Create a PostgreSQL database:
+   ```sql
+   CREATE DATABASE matika;
+   CREATE USER matika_user WITH PASSWORD 'strong_password';
+   GRANT ALL PRIVILEGES ON DATABASE matika TO matika_user;
+   ```
+
+2. Set `DATABASE_URL=postgresql://matika_user:strong_password@localhost/matika` in `.env`.
+
+3. Run migrations: `PYTHONPATH=src alembic upgrade head`.
+
+Matika automatically enables connection pooling (`pool_size=10`, `max_overflow=20`, `pool_pre_ping=True`) for non-SQLite databases.
+
+---
+
+## 6. Schema Migrations
+
+Matika uses **Alembic** for versioned schema management. This is mandatory in any environment where the database already exists and a code update includes model changes.
+
+```bash
+# Apply all pending migrations (run after every pull that touches models.py)
+PYTHONPATH=src alembic upgrade head
+
+# Check current revision
+PYTHONPATH=src alembic current
+
+# Roll back one revision
+PYTHONPATH=src alembic downgrade -1
+```
+
+**Plugin schemas** (e.g. EyeRate's `securities` table) are not managed by core Alembic migrations. Plugins apply their own schema changes via `on_load()` → `create_all()` at startup.
+
+---
+
+## 7. Zero-Downtime Deployments
+
+For high-availability setups (multiple uvicorn workers or replicas):
+
+1. Deploy new code to the next instance **without** stopping existing ones.
+2. Run `alembic upgrade head` — Alembic migrations are designed to be backward-compatible (additive changes only).
+3. Perform a rolling restart of application instances.
+
+The `pool_pre_ping=True` setting ensures stale connections are detected and recycled automatically.
+
+---
+
+## 8. Security Checklist
+
+- [ ] `SECRET_KEY` set to a cryptographically random value (≥ 64 bytes)
+- [ ] `DATABASE_URL` points to PostgreSQL for multi-user deployments
+- [ ] `alembic upgrade head` run after every deployment
+- [ ] HTTPS termination at the load balancer / Nginx
+- [ ] `plugins/` directory contains only trusted, reviewed AppLugs
+- [ ] Admin password changed on first login (`force_password_change=True` is the default)
+
+---
+
+## 9. Automated Build System
+
+`scripts/release.py` automates versioning and GitHub release creation for the core framework. For full deployment, pair the core release with the specific plugin releases required for the target environment.

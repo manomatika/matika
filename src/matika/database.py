@@ -17,9 +17,22 @@ else:
     else:
         DATABASE_URL = f"sqlite:////{db_path.lstrip('/')}"
 
-engine_kwargs = {}
+engine_kwargs: dict = {}
 if DATABASE_URL.startswith("sqlite"):
+    # SQLite: disable the single-thread check for use with FastAPI's dependency injection.
     engine_kwargs["connect_args"] = {"check_same_thread": False}
+else:
+    # PostgreSQL / MySQL: connection pool tuned for multi-user production use.
+    # pool_size      — persistent connections kept alive between requests
+    # max_overflow   — additional connections allowed under burst load
+    # pool_recycle   — close connections older than 30 min (avoids "server gone away")
+    # pool_pre_ping  — validate connections before use (catches network drops)
+    engine_kwargs.update(
+        pool_size=10,
+        max_overflow=20,
+        pool_recycle=1800,
+        pool_pre_ping=True,
+    )
 
 engine = create_engine(DATABASE_URL, **engine_kwargs)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, Form, Header, File, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from pydantic import BaseModel
 
 from ..core.paths import BASE_DIR
@@ -30,7 +30,9 @@ logger = logging.getLogger(__name__)
 @router.get("/roles", response_class=HTMLResponse)
 async def list_roles(request: Request, user: User = Depends(check_page_permission), db: Session = Depends(get_db)):
     return request.app.state.templates.TemplateResponse(request, "admin_roles.html", {
-        "roles": db.query(Role).all(), "user": user, "all_users": db.query(User).all()
+        "roles": db.query(Role).options(selectinload(Role.permissions), selectinload(Role.users)).all(),
+        "user": user,
+        "all_users": db.query(User).options(selectinload(User.roles)).all(),
     })
 
 @router.post("/roles/create")
@@ -75,7 +77,7 @@ async def export_system_data(filename: str = Form(...), include_logging: bool = 
     if include_logging:
         export_payload["system_settings"] = {s.name: s.value for s in db.query(SystemSetting).filter(SystemSetting.name.in_(["app_log_lines", "app_log_retention", "startup_log_lines", "startup_log_retention", "test_log_lines", "test_log_retention"])).all()}
     if include_system_roles:
-        export_payload["roles"] = [{"name": r.name, "description": r.description, "is_system": True, "permissions": [{"path": p.page_path, "type": p.page_type, "level": p.level} for p in r.permissions]} for r in db.query(Role).filter(Role.is_system == True).all()]
+        export_payload["roles"] = [{"name": r.name, "description": r.description, "is_system": True, "permissions": [{"path": p.page_path, "type": p.page_type, "level": p.level} for p in r.permissions]} for r in db.query(Role).filter(Role.is_system == True).options(selectinload(Role.permissions)).all()]
     if not filename.endswith(".json"): filename += ".json"
     return JSONResponse(content=export_payload, headers={"Content-Disposition": f"attachment; filename={filename}"})
 
@@ -134,7 +136,9 @@ async def list_permissions(request: Request, user: User = Depends(check_page_per
             if sk not in s: s[sk] = {"role": p.role, "user": p.user, "permissions": []}
             s[sk]["permissions"].append(p)
     return request.app.state.templates.TemplateResponse(request, "admin_permissions.html", {
-        "user": user, "grouped": grouped, "roles": db.query(Role).all(), "users": db.query(User).all(), 
+        "user": user, "grouped": grouped,
+        "roles": db.query(Role).all(),
+        "users": db.query(User).options(selectinload(User.roles)).all(),
         "page_types": list(PageType), "permission_levels": list(PermissionLevel)
     })
 
@@ -174,7 +178,9 @@ async def delete_permission_subject(page_path: str = Form(...), subject: str = F
 @router.get("/users", response_class=HTMLResponse)
 async def list_users(request: Request, user: User = Depends(check_page_permission), db: Session = Depends(get_db)):
     return request.app.state.templates.TemplateResponse(request, "admin_users.html", {
-        "users": db.query(User).all(), "user": user, "roles": db.query(Role).all()
+        "users": db.query(User).options(selectinload(User.roles)).all(),
+        "user": user,
+        "roles": db.query(Role).all(),
     })
 
 @router.post("/users/create")

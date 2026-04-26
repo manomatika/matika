@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Optional
 from fastapi import APIRouter, Request, Form, Header, Depends, File, UploadFile, Response, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from ..core.paths import BASE_DIR
 from ..database import get_db, get_system_setting
@@ -60,7 +60,7 @@ async def export_data_page(request: Request, user: User = Depends(check_page_per
 async def export_data(filename: str = Form(...), include_roles: bool = Form(False), user: User = Depends(check_page_permission), db: Session = Depends(get_db)):
     export_payload = {"metadata": {"type": "user_data", "version": get_system_setting(db, "version", "unknown"), "timestamp": datetime.now().isoformat(), "exported_by": user.email}}
     if include_roles:
-        export_payload["roles"] = [{"name": r.name, "description": r.description, "is_system": False, "permissions": [{"path": p.page_path, "type": p.page_type, "level": p.level} for p in r.permissions]} for r in db.query(Role).filter(Role.is_system == False).all()]
+        export_payload["roles"] = [{"name": r.name, "description": r.description, "is_system": False, "permissions": [{"path": p.page_path, "type": p.page_type, "level": p.level} for p in r.permissions]} for r in db.query(Role).filter(Role.is_system == False).options(selectinload(Role.permissions)).all()]
     if not filename.endswith(".json"): filename += ".json"
     return JSONResponse(content=export_payload, headers={"Content-Disposition": f"attachment; filename={filename}"})
 
