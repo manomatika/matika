@@ -256,6 +256,20 @@ body {
     gap: 16px;
 }
 
+.hp-welcome-left {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    min-width: 0;
+}
+
+.hp-welcome-icon {
+    width: 48px;
+    height: 48px;
+    object-fit: contain;
+    flex-shrink: 0;
+}
+
 .hp-welcome-greeting {
     font-size: 1.25em;
     font-weight: 600;
@@ -464,6 +478,7 @@ body {
 }
 
 .abt-logo {
+    /* kept for fallback monogram; replaced by .abt-logo-img */
     width: 60px;
     height: 60px;
     border-radius: 14px;
@@ -476,6 +491,15 @@ body {
     font-weight: 800;
     flex-shrink: 0;
     letter-spacing: -1px;
+}
+
+.abt-logo-img {
+    display: block;
+    width: 60px;
+    height: 60px;
+    object-fit: contain;
+    flex-shrink: 0;
+    border-radius: 14px;
 }
 
 .abt-app-name {
@@ -836,6 +860,7 @@ body {
 }
 
 .logo-placeholder {
+    /* kept for fallback; replaced by .logo-img */
     width: 28px;
     height: 28px;
     border-radius: 6px;
@@ -848,6 +873,13 @@ body {
     font-size: 14px;
     letter-spacing: -0.5px;
     user-select: none;
+}
+
+.logo-img {
+    display: block;
+    width: auto;
+    height: 32px;
+    object-fit: contain;
 }
 
 /* --- Zone 2: Hub --- */

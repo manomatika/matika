@@ -51,9 +51,11 @@ def test_selector_elements_present(client):
     assert 'id="menu-selector-tabs"' not in html
     assert 'id="menu-search-input"' not in html
 
-def test_logo_placeholder_present(client):
+def test_logo_image_present(client):
+    """Logo zone must use the .logo-img image, not the old CSS monogram."""
     resp = client.get("/about")
-    assert 'class="logo-placeholder"' in resp.text
+    assert 'class="logo-img"' in resp.text
+    assert "matika_icon" in resp.text
 
 
 # ---------------------------------------------------------------------------

@@ -8,12 +8,18 @@
     {# ── Welcome banner ── #}
     <div class="hp-welcome">
         <div class="hp-welcome-left">
-            <div class="hp-welcome-greeting">
-                {{ t.msg_welcome_back }} <span class="hp-welcome-name">{{ user.username }}</span>
-            </div>
-            <div class="hp-welcome-meta">
-                {{ user.email }}
-                {% if user.roles %} · {{ user.roles | map(attribute='name') | join(', ') }}{% endif %}
+            <img src="/static/img/matika_icon_64.png"
+                 srcset="/static/img/matika_icon_64.png 1x, /static/img/matika_icon_128.png 2x"
+                 alt="Matika"
+                 class="hp-welcome-icon">
+            <div>
+                <div class="hp-welcome-greeting">
+                    {{ t.msg_welcome_back }} <span class="hp-welcome-name">{{ user.username }}</span>
+                </div>
+                <div class="hp-welcome-meta">
+                    {{ user.email }}
+                    {% if user.roles %} · {{ user.roles | map(attribute='name') | join(', ') }}{% endif %}
+                </div>
             </div>
         </div>
         {% if stats %}
