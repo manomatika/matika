@@ -1,4 +1,5 @@
-**Matika** | Version: **0.0.2_dev** | Copyright (c) 2026 Patrick James Tallman
+**Matika** | Version: **v0.0.2** | Copyright (c) 2026 Patrick James Tallman
+
 
 # Matika — Dynamic AppLug Framework
 

@@ -1,3 +1,5 @@
+**Matika** | Version: **v0.0.2** | Copyright (c) 2026 Patrick James Tallman
+
 # CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
