@@ -51,7 +51,7 @@ def update_markdown_headers(version):
     md_files = glob.glob("**/*.md", recursive=True)
     
     for md_path in md_files:
-        if ".gemini" in md_path or "node_modules" in md_path or ".venv" in md_path:
+        if ".gemini" in md_path or "node_modules" in md_path or ".venv" in md_path or "plugins" in md_path:
             continue
             
         with open(md_path, "r") as f:
