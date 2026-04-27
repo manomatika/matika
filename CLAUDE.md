@@ -12,6 +12,15 @@ npm install
 export PYTHONPATH=$PYTHONPATH:$(pwd)/src
 ```
 
+### Plugin Setup (one-time per machine)
+```bash
+# Copy the example config and edit it to point at your local plugin repos
+cp plugins.dev.json.example plugins.dev.json
+# Edit plugins.dev.json, then run:
+python scripts/dev_setup.py
+```
+This replaces the manual `ln -s` approach. `dev_setup.py` is idempotent — run it again any time to add or verify plugins. `plugins.dev.json` is in `.gitignore` and is never committed.
+
 ### Required Environment Variables
 ```bash
 # Generate a secure key (required — app refuses to start without it)

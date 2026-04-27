@@ -1,0 +1,33 @@
+// plugins.dev.json — per-developer local plugin configuration
+//
+// PURPOSE
+//   This file tells scripts/dev_setup.py which AppLug repositories to wire
+//   into the plugins/ directory during local development. It is machine-
+//   specific and NEVER committed to git (plugins.dev.json is in .gitignore).
+//
+// USAGE
+//   cp plugins.dev.json.example plugins.dev.json
+//   # Edit the paths to point at your local plugin repos, then run:
+//   python scripts/dev_setup.py
+//
+// FORMAT
+//   "plugins" is an array of path strings, each pointing at the root of a
+//   plugin repository. Paths are resolved relative to the Matika repo root.
+//   Absolute paths are also accepted.
+//
+//   Each entry must contain:
+//     - applug.json          (plugin manifest)
+//     - <id>_menu.json       (at least one menu metadata file)
+//
+// EXAMPLE — sibling repository layout (most common):
+//   /Users/you/dev/projects/
+//     matika/        ← this repo
+//     eyerate/       ← plugin repo
+//
+//   Entry: "../eyerate"  (one level up from matika, then into eyerate)
+//
+{
+  "plugins": [
+    "../eyerate"
+  ]
+}

@@ -2,21 +2,35 @@
 
 # Matika Installation Guide
 
-## 1. Standalone Installation (Recommended for End Users)
+---
 
-### macOS (.dmg)
-1. Download the latest `matika-macos.dmg` from the Releases page.
-2. Drag the Matika icon to `Applications`.
-3. On first launch, if macOS shows a security warning go to **System Settings → Privacy & Security → Open Anyway**.
+## 1. End User Installation
 
-### Windows (.exe)
-1. Download the latest `matika-setup.exe`.
+Matika-based applications are distributed as standalone installers by the
+application vendor. No Python, Node.js, or technical knowledge is required.
+
+### macOS
+1. Download the `.dmg` file provided by your application vendor.
+2. Open the `.dmg` and drag the application icon to your **Applications** folder.
+3. Launch the application from Applications.
+4. On first launch, the application initialises automatically. This may take a few seconds.
+5. If macOS shows a security warning, go to **System Settings → Privacy & Security → Open Anyway**.
+
+### Windows
+1. Download the `.exe` installer provided by your application vendor.
 2. Run the installer and follow the prompts.
-3. Use the Desktop shortcut to start.
+3. Launch from the **Start Menu** or **Desktop** shortcut.
+4. The application initialises automatically on first launch.
+
+> **Note:** Standalone installers are planned for a future release. If you are
+> a developer, see Section 2.
 
 ---
 
 ## 2. Manual Installation (Developers)
+
+> **Note:** This section is for developers of Matika or Matika AppLugs.
+> End users should use the installer from their application vendor.
 
 ### Prerequisites
 - Python 3.14+
@@ -51,7 +65,12 @@ python3 -c "import secrets; print(secrets.token_urlsafe(64))"
 export $(cat .env | xargs)
 PYTHONPATH=src alembic upgrade head
 
-# 7. Start server
+# 7. Plugin setup (one-time per machine)
+cp plugins.dev.json.example plugins.dev.json
+# Edit plugins.dev.json to point at your local plugin repos, then run:
+python scripts/dev_setup.py
+
+# 8. Start server
 PYTHONPATH=src uvicorn matika.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
@@ -61,7 +80,9 @@ Open **http://127.0.0.1:8000** in your browser.
 - **Username:** `admin`
 - **Password:** `adminpassword`
 
-You will be prompted to change this password on first login.
+> ⚠️ **WARNING:** Default credentials are publicly known. Matika enforces a
+> password change on first login. Do not expose the server to a network before
+> completing first-login setup.
 
 ---
 
@@ -81,23 +102,7 @@ No code changes are needed — the ORM dialect switches automatically.
 
 ---
 
-## 4. Plugin (AppLug) Installation
-
-```bash
-cd plugins/
-
-# Clone a plugin
-git clone https://github.com/pjtallman/eyerate.git eyerate
-
-# Or symlink for development (when repos are siblings)
-ln -sf ../../eyerate eyerate
-```
-
-Restart the server. Matika auto-discovers plugins, seeds their permissions, and adds their menus.
-
----
-
-## 5. Database Migrations
+## 4. Database Migrations
 
 Matika uses **Alembic** for versioned schema migrations. Always run this after pulling updates that include model changes:
 
@@ -112,7 +117,7 @@ PYTHONPATH=src alembic current
 
 ---
 
-## 6. Troubleshooting
+## 5. Troubleshooting
 
 | Symptom | Fix |
 |---|---|
@@ -121,3 +126,4 @@ PYTHONPATH=src alembic current
 | Port 8000 already in use | `pkill -f "uvicorn matika"` |
 | `bcrypt` errors | Verify Python 3.14+ and latest `bcrypt` package |
 | `alembic.util.exc.CommandError: Can't locate revision` | Run `alembic stamp base` then `alembic upgrade head` on a fresh DB |
+| Plugin not loading | Run `python scripts/dev_setup.py` to verify symlinks |

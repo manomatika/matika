@@ -2,9 +2,19 @@
 
 # Matika Deployment Guide
 
+This guide is for **technical operators** deploying Matika to a server.
+If you are an end user installing a Matika-based application on your personal
+computer, use the installer provided by your application vendor — you do not
+need this guide.
+
+---
+
 ## 1. Deployment Model
 
-Matika is a stateless FastAPI application. The `plugins/` directory is **intentionally empty** in the core repository; plugins are injected at deployment time. This means a single core codebase can power many distinct product configurations depending on which plugins are installed.
+Matika is a stateless FastAPI application. The `plugins/` directory is
+**intentionally empty** in the core repository; plugins are injected at
+deployment time. This means a single core codebase can power many distinct
+product configurations depending on which plugins are installed.
 
 ---
 
@@ -14,11 +24,16 @@ Matika is a stateless FastAPI application. The `plugins/` directory is **intenti
 |---|---|---|
 | `SECRET_KEY` | **Required** | Secures session cookies and CSRF tokens. Generate with `python3 -c "import secrets; print(secrets.token_urlsafe(64))"`. Never use a default. |
 | `DATABASE_URL` | Optional | SQLite (default) or `postgresql://user:pass@host/db`. Switching databases requires no code changes. |
+| `MATIKA_PLUGINS_DIR` | Optional | Overrides the plugins directory path. In production, point this at a directory outside the core repository containing your licensed AppLugs. If unset, defaults to `plugins/` relative to the application root. |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Optional | Enable Google OAuth |
 | `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | Optional | Enable GitHub OAuth |
-| `MATIKA_PLUGINS_DIR` | Optional | Override the plugin directory path (used by the test suite; leave unset in production) |
 
 Copy `.env.example` to `.env` and populate before starting.
+
+Example — using `MATIKA_PLUGINS_DIR`:
+```bash
+MATIKA_PLUGINS_DIR=/opt/matika/plugins
+```
 
 ---
 
@@ -35,10 +50,17 @@ uv pip install -r requirements.txt
 # 3. Frontend
 npm install && npm run build
 
-# 4. Plugins
+# 4. Plugins — choose one option:
+
+# Option A: Use MATIKA_PLUGINS_DIR (recommended — keeps core repo clean)
+mkdir -p /opt/matika/plugins
+cd /opt/matika/plugins
+git clone https://github.com/pjtallman/eyerate.git eyerate
+# Add to .env: MATIKA_PLUGINS_DIR=/opt/matika/plugins
+
+# Option B: Clone directly into plugins/ (simpler single-server setups)
 cd plugins/
 git clone https://github.com/pjtallman/eyerate.git eyerate
-cd ..
 
 # 5. Environment
 cp .env.example .env
@@ -103,7 +125,13 @@ PYTHONPATH=src alembic current
 PYTHONPATH=src alembic downgrade -1
 ```
 
-**Plugin schemas** (e.g. EyeRate's `securities` table) are not managed by core Alembic migrations. Plugins apply their own schema changes via `on_load()` → `create_all()` at startup.
+**Plugin schemas** (e.g. EyeRate's `securities` table) are not managed by core
+Alembic migrations. Plugins apply their own schema changes via `on_load()` →
+`create_all()` at startup.
+
+Plugin menu definitions (`*_menu.json`) are loaded by the `MenuLoaderService`
+at startup. No database migration is required for menu changes. After adding or
+modifying a plugin's menu JSON, restart the server.
 
 ---
 
@@ -125,11 +153,69 @@ The `pool_pre_ping=True` setting ensures stale connections are detected and recy
 - [ ] `DATABASE_URL` points to PostgreSQL for multi-user deployments
 - [ ] `alembic upgrade head` run after every deployment
 - [ ] HTTPS termination at the load balancer / Nginx
-- [ ] `plugins/` directory contains only trusted, reviewed AppLugs
-- [ ] Admin password changed on first login (`force_password_change=True` is the default)
+- [ ] `plugins/` directory in the core repository is empty and not committed to git
+- [ ] `MATIKA_PLUGINS_DIR` (if set) points to a directory containing only trusted, reviewed AppLugs
+- [ ] Default admin password changed on first login (`force_password_change=True` is the default)
 
 ---
 
 ## 9. Automated Build System
 
-`scripts/release.py` automates versioning and GitHub release creation for the core framework. For full deployment, pair the core release with the specific plugin releases required for the target environment.
+`scripts/release.py` automates versioning and GitHub release creation for the
+core framework. For full deployment, pair the core release with the specific
+plugin releases required for the target environment.
+
+---
+
+## 10. Development Setup
+
+This section documents the full developer workflow for contributors and AppLug developers.
+
+### Prerequisites
+- Python 3.14+
+- Node.js 18+
+- `uv` (`pip install uv`)
+- Git
+
+### One-time setup
+```bash
+# Clone and enter the repo
+git clone https://github.com/pjtallman/Matika.git && cd Matika
+
+# Python environment
+uv venv && source .venv/bin/activate
+uv pip install -r requirements.txt
+
+# Frontend
+npm install && npm run build
+
+# Secret key
+cp .env.example .env
+# Edit .env and set SECRET_KEY
+
+# Database
+export $(cat .env | xargs)
+PYTHONPATH=src alembic upgrade head
+```
+
+### Plugin wiring (one-time per machine)
+```bash
+cp plugins.dev.json.example plugins.dev.json
+# Edit plugins.dev.json to point at your local plugin repos
+python scripts/dev_setup.py
+```
+
+### Run (development)
+```bash
+SECRET_KEY=<key> PYTHONPATH=src uvicorn matika.main:app \
+  --host 127.0.0.1 --port 8000 --reload
+```
+
+### Tests
+```bash
+pytest                          # all tests
+pytest tests/test_auth.py       # single module
+pytest tests/test_auth.py::test_login_success   # single test
+```
+
+See `CLAUDE.md` for the authoritative command reference.
