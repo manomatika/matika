@@ -40,3 +40,13 @@ def get_writable_root():
     return app_folder
 
 ROOT_DIR = get_writable_root()
+
+
+def get_matika_version() -> str:
+    """Returns the running Matika version read from the VERSION file."""
+    version_file = os.path.join(BASE_DIR, "VERSION")
+    try:
+        with open(version_file, "r") as f:
+            return f.read().strip()
+    except OSError:
+        return "unknown"

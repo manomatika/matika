@@ -26,6 +26,8 @@ TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engin
 @pytest.fixture(scope="session", autouse=True)
 def setup_plugins(tmp_path_factory):
     import shutil
+    import json
+    from matika.core.paths import get_matika_version
     # Use a pytest-managed temp directory so tests never touch the project's
     # plugins/ folder (which may contain dev symlinks like eyerate).
     test_plugins_dir = str(tmp_path_factory.mktemp("matika_plugins"))
@@ -35,6 +37,15 @@ def setup_plugins(tmp_path_factory):
     mock_dest = os.path.join(test_plugins_dir, "mock_plugin")
     if os.path.exists(mock_src):
         shutil.copytree(mock_src, mock_dest)
+        # Patch matika_version to match the running Matika version so the
+        # mock plugin passes the compatibility check regardless of which
+        # VERSION the repo is currently at.
+        manifest_path = os.path.join(mock_dest, "applug.json")
+        with open(manifest_path) as f:
+            manifest = json.load(f)
+        manifest["matika_version"] = get_matika_version()
+        with open(manifest_path, "w") as f:
+            json.dump(manifest, f, indent=4)
 
     yield
 

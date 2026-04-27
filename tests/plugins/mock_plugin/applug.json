@@ -2,6 +2,7 @@
     "id": "mock_plugin",
     "name": "Mock Plugin",
     "version": "1.0.0",
+    "matika_version": "0.0.2",
     "description": "A mock plugin for unit testing Matika's plugin system.",
     "entry_point": "mock_plugin.plugin.MockPlugin",
     "permissions": [

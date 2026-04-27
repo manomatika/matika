@@ -110,9 +110,11 @@ Standalone `.dmg`/`.exe` built with PyInstaller. Bundles the framework + selecte
 
 #### AppLug contract
 Every plugin directory must contain:
-- `applug.json` — manifest: `id`, `version`, `name`, optional `display_name`, `entry_point`, `permissions`
+- `applug.json` — manifest: `id`, `version`, `name`, `matika_version` (required — exact Matika version this AppLug was built and tested against), optional `display_name`, `entry_point`, `permissions`
 - `<id>_menu.json` — at least one menu metadata file (schema v1.0)
 - Python class extending `BaseAppLug` with `on_load(db)` and `on_unload(db)`
+
+`matika_version` (required) is checked at startup by `BaseAppLug._validate_compatibility()`. If absent or mismatched the AppLug is refused and skipped — a clear `RuntimeError` is logged. This is the compatibility contract baseline introduced in Matika 0.0.2; no breaking changes to `BaseAppLug` or the plugin discovery contract from this version forward.
 
 `display_name` (optional) is the short UI label shown in the menu selector. Falls back to `name` if absent.
 

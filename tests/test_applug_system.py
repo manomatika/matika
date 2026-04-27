@@ -5,6 +5,7 @@ import shutil
 from matika.core.applug_service import AppLugService
 from matika.database import Role, Permission, PageType, PermissionLevel
 from matika.core.applug import BaseAppLug
+from matika.core.paths import get_matika_version
 
 # Mock Plugin for Testing
 MOCK_PLUGIN_CONTENT = """
@@ -31,6 +32,7 @@ def mock_plugin(plugin_dir):
     manifest = {
         "id": "test_plugin",
         "version": "1.0.0",
+        "matika_version": get_matika_version(),
         "entry_point": "plugin.MockPlugin",
         "permissions": [
             {
@@ -137,7 +139,7 @@ def test_resilience_to_faulty_plugins(plugin_dir, db):
 def test_resilience_to_missing_entry_point(plugin_dir, db):
     missing_path = os.path.join(plugin_dir, "missing_code")
     os.makedirs(missing_path)
-    manifest = {"id": "missing", "version": "1.0", "entry_point": "nonexistent:Class"}
+    manifest = {"id": "missing", "version": "1.0", "matika_version": get_matika_version(), "entry_point": "nonexistent:Class"}
     with open(os.path.join(missing_path, "applug.json"), "w") as f:
         json.dump(manifest, f)
 
@@ -302,6 +304,7 @@ def test_display_name_used_in_selector_over_name(plugin_dir, db):
     manifest = {
         "id": "named_plugin",
         "version": "1.0",
+        "matika_version": get_matika_version(),
         "name": "Named Plugin Full Name",
         "display_name": "Short Name",
         "entry_point": "plugin.MockPlugin",
@@ -343,6 +346,7 @@ def test_display_name_falls_back_to_name(plugin_dir, db):
     manifest = {
         "id": "nodn_plugin",
         "version": "1.0",
+        "matika_version": get_matika_version(),
         "name": "Full Name Only",
         "entry_point": "plugin.MockPlugin",
     }
@@ -373,3 +377,89 @@ def test_display_name_falls_back_to_name(plugin_dir, db):
     result = service.get_menus_for_context(user_roles=["Admin"], t={})
     item_labels = {e["id"]: e["label"] for e in result["selector"] if e.get("type") == "item"}
     assert item_labels.get("nodn_plugin") == "Full Name Only"
+
+
+# ---------------------------------------------------------------------------
+# matika_version compatibility contract
+# ---------------------------------------------------------------------------
+
+def test_missing_matika_version_skips_plugin(plugin_dir, db):
+    """An applug.json without matika_version is refused at startup."""
+    p_path = os.path.join(plugin_dir, "no_ver_plugin")
+    os.makedirs(p_path)
+    manifest = {
+        "id": "no_ver_plugin",
+        "version": "1.0",
+        "entry_point": "plugin.MockPlugin",
+        # matika_version intentionally absent
+    }
+    with open(os.path.join(p_path, "applug.json"), "w") as f:
+        json.dump(manifest, f)
+    with open(os.path.join(p_path, "plugin.py"), "w") as f:
+        f.write(MOCK_PLUGIN_CONTENT)
+
+    service = AppLugService(plugins_dir=plugin_dir)
+    plugins = service.discover(db)
+
+    loaded_ids = [p.id for p in plugins]
+    assert "no_ver_plugin" not in loaded_ids
+
+
+def test_mismatched_matika_version_skips_plugin(plugin_dir, db):
+    """An applug.json with a matika_version that doesn't match running Matika is refused."""
+    p_path = os.path.join(plugin_dir, "bad_ver_plugin")
+    os.makedirs(p_path)
+    manifest = {
+        "id": "bad_ver_plugin",
+        "version": "1.0",
+        "matika_version": "0.0.0",   # deliberately wrong
+        "entry_point": "plugin.MockPlugin",
+    }
+    with open(os.path.join(p_path, "applug.json"), "w") as f:
+        json.dump(manifest, f)
+    with open(os.path.join(p_path, "plugin.py"), "w") as f:
+        f.write(MOCK_PLUGIN_CONTENT)
+
+    service = AppLugService(plugins_dir=plugin_dir)
+    plugins = service.discover(db)
+
+    loaded_ids = [p.id for p in plugins]
+    assert "bad_ver_plugin" not in loaded_ids
+
+
+def test_correct_matika_version_loads_plugin(plugin_dir, db):
+    """An applug.json with the correct matika_version loads successfully."""
+    p_path = os.path.join(plugin_dir, "good_ver_plugin")
+    os.makedirs(p_path)
+    manifest = {
+        "id": "good_ver_plugin",
+        "version": "1.0",
+        "matika_version": get_matika_version(),
+        "entry_point": "plugin.MockPlugin",
+    }
+    with open(os.path.join(p_path, "applug.json"), "w") as f:
+        json.dump(manifest, f)
+    with open(os.path.join(p_path, "plugin.py"), "w") as f:
+        f.write(MOCK_PLUGIN_CONTENT)
+
+    service = AppLugService(plugins_dir=plugin_dir)
+    plugins = service.discover(db)
+
+    loaded_ids = [p.id for p in plugins]
+    assert "good_ver_plugin" in loaded_ids
+
+
+def test_validate_compatibility_error_message_is_informative(plugin_dir, db):
+    """The RuntimeError from _validate_compatibility includes actionable text."""
+    import pytest
+    from matika.core.applug import BaseAppLug
+
+    class ConcretePlugin(BaseAppLug):
+        def on_load(self, db): pass
+        def on_unload(self, db): pass
+
+    with pytest.raises(RuntimeError, match="matika_version"):
+        ConcretePlugin({"id": "test", "version": "1.0"})  # missing matika_version
+
+    with pytest.raises(RuntimeError, match="0.0.0"):
+        ConcretePlugin({"id": "test", "version": "1.0", "matika_version": "0.0.0"})  # wrong version
