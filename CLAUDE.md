@@ -19,15 +19,14 @@ cp plugins.dev.json.example plugins.dev.json
 # Edit plugins.dev.json, then run:
 python scripts/dev_setup.py
 ```
-This replaces the manual `ln -s` approach. `dev_setup.py` is idempotent — run it again any time to add or verify plugins. `plugins.dev.json` is in `.gitignore` and is never committed.
+`dev_setup.py` is idempotent — safe to run multiple times. It validates each path contains both `applug.json` and at least one `*_menu.json` before creating symlinks. `plugins.dev.json` is in `.gitignore` and is never committed.
 
 ### Required Environment Variables
 ```bash
 # Generate a secure key (required — app refuses to start without it)
 export SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(64))")
 
-# Or create a persistent .env file:
-echo "SECRET_KEY=$(python3 -c 'import secrets; print(secrets.token_urlsafe(64))')" > .env
+# Or create a persistent .env file (copy .env.example first):
 export $(cat .env | xargs)
 ```
 
@@ -43,17 +42,10 @@ npm run build   # compiles src/frontend/*.ts → src/matika/static/js/
 
 ### Database Migrations (Alembic)
 ```bash
-# Apply all pending migrations to the live database
-PYTHONPATH=src alembic upgrade head
-
-# Check current migration revision
-PYTHONPATH=src alembic current
-
-# Generate a new migration after changing models.py
-PYTHONPATH=src alembic revision --autogenerate -m "describe_change"
-
-# Roll back one migration
-PYTHONPATH=src alembic downgrade -1
+PYTHONPATH=src alembic upgrade head                              # apply all pending
+PYTHONPATH=src alembic current                                   # check revision
+PYTHONPATH=src alembic revision --autogenerate -m "description"  # generate from model changes
+PYTHONPATH=src alembic downgrade -1                              # roll back one
 ```
 
 ### Tests
@@ -62,6 +54,8 @@ pytest                                                      # all tests
 pytest tests/test_auth.py                                   # one module
 pytest tests/test_auth.py::test_login_success               # one test
 ```
+
+---
 
 ## Architecture
 
@@ -72,61 +66,184 @@ Matika is a **plugin-agnostic FastAPI framework** — the core has zero knowledg
 | Layer | Path | Role |
 |---|---|---|
 | Plugin engine | `src/matika/core/applug_service.py` | Discovers, loads, and registers AppLugs; builds role menu cache at startup |
-| Menu Hub | `src/matika/core/menu_loader.py` | Loads `*_menu.json` files; `MenuLoaderService` provides menus to the selector |
-| Auth | `src/matika/auth/` | bcrypt password hashing, JWT, OAuth; FastAPI DI via `dependencies.py`; `validate_csrf` for CSRF protection |
-| Database | `src/matika/database.py`, `models.py` | SQLAlchemy ORM + SQLite (dev) or PostgreSQL/MySQL (prod); connection pool configured automatically per engine |
-| Migrations | `migrations/` | Alembic versioned migrations for the core schema; plugin tables use `create_all()` in `on_load()` |
-| RBAC | `src/matika/security/service.py` | Role → Permission enforcement; PermissionLevel enum; `permissions` table has composite indexes on `(page_path, role_id)` and `(page_path, user_id)` |
-| Rate limiter | `src/matika/core/rate_limiter.py` | In-process login rate limiter (10 failures / 5 min → 15-min lockout) |
-| Routers | `src/matika/routers/` | `public.py` (login/register), `settings.py`, `admin.py` |
+| Menu loader | `src/matika/core/menu_loader.py` | `MenuLoaderService` — discovers and parses all `*_menu.json` files |
+| Auth | `src/matika/auth/` | bcrypt, JWT, OAuth; `dependencies.py` provides `login_required`, `validate_csrf` |
+| Database | `src/matika/database.py`, `models.py` | SQLAlchemy ORM; SQLite (dev) or PostgreSQL/MySQL (prod) |
+| Migrations | `migrations/` | Alembic versioned migrations for core schema only |
+| RBAC | `src/matika/security/service.py` | Role → Permission checks on every request; composite indexes on `permissions` |
+| Rate limiter | `src/matika/core/rate_limiter.py` | In-process login limiter (10 failures / 5 min → 15-min lockout) |
+| Routers | `src/matika/routers/` | `public.py` (login/register/home), `settings.py`, `admin.py` |
 | Templates | `src/matika/templates/` | Jinja2; `maintenance_activity_base.html` is the standard two-panel admin layout |
-| i18n | `src/matika/i18n.py` | Locale merging across core + all plugins |
-| Frontend | `src/frontend/` | Vanilla TypeScript compiled to JS; `csrf.ts` shared CSRF helper |
+| i18n | `src/matika/i18n.py` | Core locale + per-plugin override merging |
+| Frontend | `src/frontend/` | Vanilla TypeScript → JS; `csrf.ts` shared helper |
 
-### Plugin System (AppLugs)
+---
 
-Each plugin lives in `plugins/<name>/` and must contain:
-- `applug.json` — manifest (id, version, `name`, optional `display_name`, entry_point, permissions)
-- `<id>_menu.json` — menu metadata (schema v1.0; MenuType: Application/Role/System/Favorites)
+### Plugin Management System
 
-At startup, `applug_service.py` scans the plugins directory, loads manifests, imports the entry class, and calls `on_load()`. Menu metadata is loaded separately by `MenuLoaderService`.
+The `plugins/` directory is **intentionally empty in git**. Plugins are injected at setup time, never committed. There are three injection patterns:
 
-### Menu Hub System
+#### 1. Development (symlinks via `dev_setup.py`)
+```
+plugins.dev.json.example   ← template, committed
+plugins.dev.json           ← per-developer config, gitignored
+scripts/dev_setup.py       ← validates + creates symlinks
+plugins/eyerate → /path/to/eyerate   ← result
+```
+`dev_setup.py` validates each entry has `applug.json` AND at least one `*_menu.json` before symlinking. It is idempotent and handles broken/wrong-target symlinks interactively.
 
-Three-zone menu bar: **[M logo]** | **[Selector + Hub items]** | **[User avatar]**
+#### 2. Server deployment (git clone or `MATIKA_PLUGINS_DIR`)
+```bash
+# Option A — clone into plugins/ (simple single-server)
+cd plugins && git clone https://github.com/org/eyerate.git eyerate
 
-- **Selector** — structured dropdown: Default → Favorites → Applications (per plugin) → Roles (per role with menus)
-- **Default hub** — one submenu per AppLug + core menus (Help always last)
-- **Application hub** — that plugin's menus + Help
-- **Role hub** — built at startup from permissions DB; shows all pages the role can access
-- **Hub items** — click-to-toggle dropdowns; user zone retains CSS hover
+# Option B — separate directory (recommended for production)
+MATIKA_PLUGINS_DIR=/opt/matika/plugins  # set in .env
+# clone plugins into /opt/matika/plugins/
+```
+`MATIKA_PLUGINS_DIR` is read in `AppLugService.__init__()` (`applug_service.py:34`) before falling back to `ROOT_DIR/plugins`. It works at full runtime — not test-only.
 
-`menus_data` is server-side rendered as JSON in `<meta name="csrf-token">` and a `<script type="application/json" id="matika-menus">` tag. TypeScript reads it at boot.
+#### 3. End-user installer (future)
+Standalone `.dmg`/`.exe` built with PyInstaller. Bundles the framework + selected plugins. No Python environment required.
+
+#### AppLug contract
+Every plugin directory must contain:
+- `applug.json` — manifest: `id`, `version`, `name`, optional `display_name`, `entry_point`, `permissions`
+- `<id>_menu.json` — at least one menu metadata file (schema v1.0)
+- Python class extending `BaseAppLug` with `on_load(db)` and `on_unload(db)`
+
+`display_name` (optional) is the short UI label shown in the menu selector. Falls back to `name` if absent.
+
+All plugin POST routes must add `check_page_permission` and `validate_csrf` dependencies.
+
+---
+
+### Menu Loading Pipeline
+
+Menu data flows through two distinct phases:
+
+#### Phase 1 — File loading (`MenuLoaderService`)
+
+`MenuLoaderService` (`core/menu_loader.py`) scans two locations:
+
+| Source | Path | Key |
+|---|---|---|
+| Core menus | `src/matika/menus/` | `"core"` |
+| Plugin menus | `plugins/<id>/<id>_menu.json` | `"<plugin_id>"` |
+
+Only files matching `*_menu.json` are loaded. The service caches results after the first call (`load_all()` is lazy-cached; call `invalidate_cache()` to reset). Schema version `"1.0"` is enforced — files with other versions are skipped with a warning.
+
+#### Phase 2 — Context building (`AppLugService.get_menus_for_context`)
+
+Called per-request. Applies server-side role filtering and pre-translates labels before sending to the template:
+
+1. Filter menus by `roles` field (menus whose entire item set is filtered away are hidden entirely)
+2. Translate `label_key` → display label using the `t` dict
+3. Build the **selector** structure (discriminated union: `item | separator | header`)
+4. Build **hubs** for each selector entry
+
+Selector ordering is fixed: `Default → (sep) → Favorites → (sep) → [Applications header] → plugins → (sep) → [Roles header] → roles`.
+
+Hub ordering within each entry: plugin menus first → core non-System menus → core System (Help) menus last.
+
+**Role hubs** are built once at startup (`_build_role_menus(db)`) from the permissions database — not from static files. Every page where a role has `permission != NONE` becomes a link in that role's hub. This means role menus update automatically when permissions change (after server restart).
+
+#### `*_menu.json` schema v1.0
+
+```json
+{
+  "schema_version": "1.0",
+  "menus": [
+    {
+      "id": "unique-id",
+      "label_key": "i18n_key",
+      "type": "Application | Role | System | Favorites",
+      "roles": ["Admin"],        // optional — gates entire menu
+      "items": [
+        { "type": "Link",      "label_key": "k", "href": "/path", "roles": ["Admin"], "open_new_tab": false },
+        { "type": "Menu",      "label_key": "k", "items": [ ... ] },
+        { "type": "Separator" }
+      ]
+    }
+  ]
+}
+```
+
+`MenuType.DEFAULT` is a **selector entry type**, not a menu type. No `*_menu.json` file ever has `type: "Default"`. Default is an aggregated view assembled at runtime.
+
+Core menus: `admin_menu.json` (type `Role`) and `help_menu.json` (type `System`). System-type menus always render last in every hub.
+
+#### `menus_data` JSON injected into every page
+
+```html
+<script type="application/json" id="matika-menus">
+  { "selector": [...], "hubs": { "__default__": [...], "eyerate": [...], ... } }
+</script>
+<meta name="user-id" content="{{ user.id }}">
+<meta name="user-default-menu" content="{{ user_default_menu }}">
+```
+
+TypeScript reads these on `DOMContentLoaded`. Hub selection is persisted in `sessionStorage` under a per-user key (`matika_active_hub_<user_id>`) so navigating between pages preserves the selection.
+
+**Default menu preference** is stored in `user_settings` (name=`"default_menu"`, value=hub_id). Priority on page load: `sessionStorage` → user saved preference → system Default.
+
+---
+
+### Deployment Use Cases
+
+| Use Case | Audience | Plugin injection | Auth |
+|---|---|---|---|
+| Development | Plugin/framework developers | `dev_setup.py` symlinks via `plugins.dev.json` | Local `.env` |
+| Server deployment | Technical operators | `MATIKA_PLUGINS_DIR` or `plugins/` clones | Server `.env` / secrets manager |
+| End-user installer | Non-technical users | Bundled by vendor at build time | First-login password change |
+
+See `doc/DEPLOYMENT.md` for the full operator guide and `doc/INSTALL.md` for end-user and developer installation steps.
+
+---
 
 ### Key Runtime Patterns
 
-- **Global auth dependency:** `inject_user_to_state` populates `request.state.user` on every request.
-- **CSRF:** Session-based token; `validate_csrf` dependency on all authenticated POST routes; JavaScript injects token into form submissions.
-- **Session middleware:** `SessionMiddleware` issues cookies (cleared on browser close); 30-day absolute cap even for persistent sessions.
-- **Security headers:** `SecurityHeadersMiddleware` adds X-Frame-Options, X-Content-Type-Options, Referrer-Policy.
-- **SECRET_KEY:** Hard required — app refuses to start without it. Never falls back to a default.
-- **MATIKA_PLUGINS_DIR env var:** Tests use a pytest-managed temp directory; the project's `plugins/` symlinks are never touched by test runs.
+- **Global auth dependency:** `inject_user_to_state` populates `request.state.user` on every request. Roles and settings are eager-loaded via `subqueryload`.
+- **CSRF:** Session-based token generated in context processor. `validate_csrf` FastAPI dependency on all authenticated POST routes. JavaScript (`csrf.ts`) auto-injects token on form `submit` events; TypeScript files that call `form.submit()` programmatically must call `injectCsrfToken(form)` explicitly.
+- **Session middleware:** `SessionMiddleware` issues cookies (cleared on browser close); 30-day absolute cap even for `is_persistent` (remember-me) sessions.
+- **Security headers:** `SecurityHeadersMiddleware` adds `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy`.
+- **SECRET_KEY:** Hard-required — app refuses to start without it. Never has a default fallback.
+- **`MATIKA_PLUGINS_DIR`:** Read in `AppLugService.__init__()`. Overrides `ROOT_DIR/plugins` at runtime. Tests set it to a pytest-managed temp dir via `conftest.py`; the project's `plugins/` directory is never touched during test runs.
+
+---
 
 ### Persistence Layer
 
-- **ORM:** Pure SQLAlchemy (no raw SQL anywhere). Switching databases = change `DATABASE_URL`.
-- **SQLite** (default): zero-config, single-user, ideal for desktop/dev deployment.
-- **PostgreSQL/MySQL**: set `DATABASE_URL`; connection pool (pool_size=10, max_overflow=20, pool_pre_ping=True) activates automatically.
-- **Migrations:** Alembic in `migrations/`. Core schema only; plugin tables are plugin-managed via `create_all()`. Always run `alembic upgrade head` after pulling schema changes.
-- **Indexes:** `permissions` table has 5 indexes including composites on `(page_path, role_id)` and `(page_path, user_id)` — critical for per-request auth performance.
+- **ORM:** Pure SQLAlchemy (zero raw SQL). Switching databases = change `DATABASE_URL`. No code changes required.
+- **SQLite** (default): zero-config, single-user, ideal for dev and desktop installs.
+- **PostgreSQL/MySQL:** set `DATABASE_URL`; connection pool (`pool_size=10`, `max_overflow=20`, `pool_pre_ping=True`) activates automatically for non-SQLite engines.
+- **Migrations:** Alembic in `migrations/`. Core schema only — plugin tables are plugin-managed via `on_load()` → `create_all()`. Always run `alembic upgrade head` after pulling changes that touch `models.py`.
+- **Performance:** `permissions` table has 5 indexes including composites on `(page_path, role_id)` and `(page_path, user_id)` — critical since this table is queried on every authenticated request.
+- **N+1 prevention:** List-view routes use `selectinload()` for relationships. Export routes use `selectinload(Role.permissions)` to avoid per-role lazy queries.
+
+---
+
+### Security Model
+
+- All admin POST routes have `check_page_permission` + `validate_csrf` dependencies.
+- `check_page_permission` walks up the URL path hierarchy to find a matching permission (e.g. `/admin/roles/create` → checks `/admin/roles` → `/admin`).
+- Server-side role filtering in `get_menus_for_context`: admin URLs are **never sent** to non-admin users in the `menus_data` JSON payload.
+- Login rate limiting: 10 failures per IP in a 5-min window → 15-min lockout. Bypassed during `IS_TESTING`.
+- File uploads: 5 MB cap on photos (magic-byte verified against JPEG/PNG/GIF/WebP); 10 MB cap on JSON imports.
+- `CSRF` validation is bypassed when `IS_TESTING` (PYTEST_VERSION env var set). Tests do not need to include CSRF tokens in POST data.
+
+---
 
 ### Testing
 
-`tests/conftest.py` wires up a session-scoped test database (`data/test_matika.db`) using `MATIKA_PLUGINS_DIR` env var to point to a pytest-managed temp dir (never touches `plugins/`). Tests use `TestClient` — no async runner needed. `SECRET_KEY` is set in conftest before any app import.
+`tests/conftest.py` wires up a session-scoped test database (`data/test_matika.db`) using `MATIKA_PLUGINS_DIR` to point at a pytest-managed temp dir. The mock plugin in `tests/plugins/mock_plugin/` is copied there at session start — the real `plugins/` directory is never touched. Tests use `TestClient` (no async runner). `SECRET_KEY` is set in `conftest.py` before any app import.
+
+---
 
 ### Standing Rules
-- Always add unit tests for new functionality; update existing tests for changed functionality.
-- All tests must be green before moving to the next phase or declaring work done.
+- Always add unit tests for new functionality; update existing tests for changed behaviour.
+- All tests must be green before declaring work done or moving to the next phase.
 - Never hardcode `SECRET_KEY` — read from environment only.
-- Never modify the production DB during testing (use the test DB fixtures).
-- Flag best-practice violations before implementing; do not silently comply.
+- Never modify the production DB during testing.
+- Flag best-practice violations before implementing; never silently comply.
+- EyeRate-specific dependencies (`yfinance`, `curl_cffi`) belong in `eyerate/requirements.txt`, not in Matika's `requirements.txt`.
