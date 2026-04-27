@@ -1,6 +1,6 @@
 [project]
 name = "matika"
-version = "0.0.1"
+version = "0.0.2"
 description = "High-performance yield tracking and security maintenance application"
 readme = "README.md"
 authors = [
