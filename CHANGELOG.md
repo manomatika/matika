@@ -6,6 +6,13 @@ All notable changes to Matika are documented here.
 
 ---
 
+## [Unreleased / 0.0.3_dev]
+
+### Added
+- *(nothing yet)*
+
+---
+
 ## [0.0.2] — 2026-04-27
 
 ### Compatibility Contract (baseline)
