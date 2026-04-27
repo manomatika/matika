@@ -5,8 +5,13 @@ from typing import Optional
 from authlib.integrations.starlette_client import OAuth
 from jose import jwt
 
-# Settings
-SECRET_KEY = os.environ.get("SECRET_KEY", "a-very-secret-key-for-development")
+# Settings — SECRET_KEY must be provided; the app refuses to start without it.
+SECRET_KEY = os.environ.get("SECRET_KEY")
+if not SECRET_KEY:
+    raise RuntimeError(
+        "CRITICAL: SECRET_KEY environment variable is not set. "
+        "The application cannot start. Set it in your environment or .env file."
+    )
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 # 24 hours
 

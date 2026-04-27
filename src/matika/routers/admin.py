@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, Form, Header, File, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from pydantic import BaseModel
 
 from ..core.paths import BASE_DIR
@@ -17,7 +17,9 @@ from ..models import User, Role, Permission, SystemSetting
 from ..core.constants import PageType, PermissionLevel
 from ..core.logging_config import ACTIVE_LOG, STARTUP_LOG, LOG_DIR
 from ..auth.service import get_password_hash
-from ..auth.dependencies import login_required
+from ..auth.dependencies import login_required, validate_csrf
+
+_MAX_IMPORT_BYTES = 10 * 1024 * 1024   # 10 MB
 from ..security.service import check_page_permission
 from ..data_mgmt.export_import import get_activity_categories
 
@@ -28,17 +30,19 @@ logger = logging.getLogger(__name__)
 @router.get("/roles", response_class=HTMLResponse)
 async def list_roles(request: Request, user: User = Depends(check_page_permission), db: Session = Depends(get_db)):
     return request.app.state.templates.TemplateResponse(request, "admin_roles.html", {
-        "roles": db.query(Role).all(), "user": user, "all_users": db.query(User).all()
+        "roles": db.query(Role).options(selectinload(Role.permissions), selectinload(Role.users)).all(),
+        "user": user,
+        "all_users": db.query(User).options(selectinload(User.roles)).all(),
     })
 
 @router.post("/roles/create")
-async def create_role(name: str = Form(...), description: str = Form(""), db: Session = Depends(get_db)):
+async def create_role(name: str = Form(...), description: str = Form(""), _auth: User = Depends(check_page_permission), _csrf=Depends(validate_csrf), db: Session = Depends(get_db)):
     db.add(Role(name=name, description=description))
     db.commit()
     return RedirectResponse(url="/admin/roles", status_code=303)
 
 @router.post("/roles/update/{role_id}")
-async def update_role(role_id: int, name: str = Form(...), description: str = Form(""), user_ids: Optional[str] = Form(None), db: Session = Depends(get_db)):
+async def update_role(role_id: int, name: str = Form(...), description: str = Form(""), user_ids: Optional[str] = Form(None), _auth: User = Depends(check_page_permission), _csrf=Depends(validate_csrf), db: Session = Depends(get_db)):
     role = db.query(Role).filter(Role.id == role_id).first()
     if role:
         role.name = name
@@ -50,7 +54,7 @@ async def update_role(role_id: int, name: str = Form(...), description: str = Fo
     return RedirectResponse(url="/admin/roles", status_code=303)
 
 @router.post("/roles/delete/{role_id}")
-async def delete_role(role_id: int, db: Session = Depends(get_db)):
+async def delete_role(role_id: int, _auth: User = Depends(check_page_permission), _csrf=Depends(validate_csrf), db: Session = Depends(get_db)):
     role = db.query(Role).filter(Role.id == role_id).first()
     if role and role.name not in ["Admin", "User"]:
         db.delete(role)
@@ -73,7 +77,7 @@ async def export_system_data(filename: str = Form(...), include_logging: bool = 
     if include_logging:
         export_payload["system_settings"] = {s.name: s.value for s in db.query(SystemSetting).filter(SystemSetting.name.in_(["app_log_lines", "app_log_retention", "startup_log_lines", "startup_log_retention", "test_log_lines", "test_log_retention"])).all()}
     if include_system_roles:
-        export_payload["roles"] = [{"name": r.name, "description": r.description, "is_system": True, "permissions": [{"path": p.page_path, "type": p.page_type, "level": p.level} for p in r.permissions]} for r in db.query(Role).filter(Role.is_system == True).all()]
+        export_payload["roles"] = [{"name": r.name, "description": r.description, "is_system": True, "permissions": [{"path": p.page_path, "type": p.page_type, "level": p.level} for p in r.permissions]} for r in db.query(Role).filter(Role.is_system == True).options(selectinload(Role.permissions)).all()]
     if not filename.endswith(".json"): filename += ".json"
     return JSONResponse(content=export_payload, headers={"Content-Disposition": f"attachment; filename={filename}"})
 
@@ -90,7 +94,10 @@ async def import_system_page(request: Request, user: User = Depends(check_page_p
 @router.post("/settings/import")
 async def system_import(file: UploadFile = File(...), include_logging: bool = Form(False), include_system_roles: bool = Form(False), user: User = Depends(check_page_permission), db: Session = Depends(get_db)):
     try:
-        data = json.loads(await file.read())
+        raw = await file.read(_MAX_IMPORT_BYTES + 1)
+        if len(raw) > _MAX_IMPORT_BYTES:
+            raise Exception("File too large (max 10 MB)")
+        data = json.loads(raw)
         if data.get("metadata", {}).get("type") != "system_config": raise Exception("Invalid file type")
         if "system_settings" in data:
             s_data = data["system_settings"]
@@ -129,12 +136,14 @@ async def list_permissions(request: Request, user: User = Depends(check_page_per
             if sk not in s: s[sk] = {"role": p.role, "user": p.user, "permissions": []}
             s[sk]["permissions"].append(p)
     return request.app.state.templates.TemplateResponse(request, "admin_permissions.html", {
-        "user": user, "grouped": grouped, "roles": db.query(Role).all(), "users": db.query(User).all(), 
+        "user": user, "grouped": grouped,
+        "roles": db.query(Role).all(),
+        "users": db.query(User).options(selectinload(User.roles)).all(),
         "page_types": list(PageType), "permission_levels": list(PermissionLevel)
     })
 
 @router.post("/permissions/create")
-async def create_permission(page_path: str = Form(...), subject: str = Form(...), level: PermissionLevel = Form(...), db: Session = Depends(get_db)):
+async def create_permission(page_path: str = Form(...), subject: str = Form(...), level: PermissionLevel = Form(...), _auth: User = Depends(check_page_permission), _csrf=Depends(validate_csrf), db: Session = Depends(get_db)):
     st, sid = subject.split(":")
     rid = int(sid) if st == "role" else None
     uid = int(sid) if st == "user" else None
@@ -154,7 +163,7 @@ async def create_permission(page_path: str = Form(...), subject: str = Form(...)
     return RedirectResponse(url="/admin/permissions", status_code=303)
 
 @router.post("/permissions/delete-subject")
-async def delete_permission_subject(page_path: str = Form(...), subject: str = Form(...), db: Session = Depends(get_db)):
+async def delete_permission_subject(page_path: str = Form(...), subject: str = Form(...), _auth: User = Depends(check_page_permission), _csrf=Depends(validate_csrf), db: Session = Depends(get_db)):
     st, sid = subject.split(":")
     rid = int(sid) if st == "role" else None
     uid = int(sid) if st == "user" else None
@@ -169,11 +178,13 @@ async def delete_permission_subject(page_path: str = Form(...), subject: str = F
 @router.get("/users", response_class=HTMLResponse)
 async def list_users(request: Request, user: User = Depends(check_page_permission), db: Session = Depends(get_db)):
     return request.app.state.templates.TemplateResponse(request, "admin_users.html", {
-        "users": db.query(User).all(), "user": user, "roles": db.query(Role).all()
+        "users": db.query(User).options(selectinload(User.roles)).all(),
+        "user": user,
+        "roles": db.query(Role).all(),
     })
 
 @router.post("/users/create")
-async def admin_create_user(email: str = Form(...), username: str = Form(...), password: Optional[str] = Form(None), role_ids: Optional[str] = Form(None), db: Session = Depends(get_db)):
+async def admin_create_user(email: str = Form(...), username: str = Form(...), password: Optional[str] = Form(None), role_ids: Optional[str] = Form(None), _auth: User = Depends(check_page_permission), _csrf=Depends(validate_csrf), db: Session = Depends(get_db)):
     if db.query(User).filter(User.email == email).first(): raise HTTPException(status_code=400, detail="Email taken")
     pwd = password if password else username
     u = User(email=email, username=username, hashed_password=get_password_hash(pwd), is_authorized=True, force_password_change=True)
@@ -187,7 +198,7 @@ async def admin_create_user(email: str = Form(...), username: str = Form(...), p
     return RedirectResponse(url="/admin/users", status_code=303)
 
 @router.post("/users/update/{user_id}")
-async def admin_update_user(user_id: int, email: str = Form(...), username: Optional[str] = Form(None), role_ids: Optional[str] = Form(None), force_password_change: str = Form("false"), db: Session = Depends(get_db)):
+async def admin_update_user(user_id: int, email: str = Form(...), username: Optional[str] = Form(None), role_ids: Optional[str] = Form(None), force_password_change: str = Form("false"), _auth: User = Depends(check_page_permission), _csrf=Depends(validate_csrf), db: Session = Depends(get_db)):
     u = db.query(User).filter(User.id == user_id).first()
     if u:
         if db.query(User).filter(User.email == email, User.id != user_id).first():
@@ -202,7 +213,7 @@ async def admin_update_user(user_id: int, email: str = Form(...), username: Opti
     return RedirectResponse(url="/admin/users", status_code=303)
 
 @router.post("/users/force-password-change/{user_id}")
-async def admin_force_password_change(user_id: int, db: Session = Depends(get_db)):
+async def admin_force_password_change(user_id: int, _auth: User = Depends(check_page_permission), _csrf=Depends(validate_csrf), db: Session = Depends(get_db)):
     u = db.query(User).filter(User.id == user_id).first()
     if u:
         u.force_password_change = True
@@ -210,7 +221,7 @@ async def admin_force_password_change(user_id: int, db: Session = Depends(get_db
     return RedirectResponse(url="/admin/users", status_code=303)
 
 @router.post("/users/delete/{user_id}")
-async def admin_delete_user(user_id: int, current_user: User = Depends(login_required), db: Session = Depends(get_db)):
+async def admin_delete_user(user_id: int, current_user: User = Depends(check_page_permission), _csrf=Depends(validate_csrf), db: Session = Depends(get_db)):
     if user_id == current_user.id:
         raise HTTPException(status_code=400, detail="Cannot delete yourself")
     u = db.query(User).filter(User.id == user_id).first()

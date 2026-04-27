@@ -3,31 +3,130 @@
 {% block title %}{{ t.item_user_settings }}{% endblock %}
 
 {% block content %}
-<div class="settings-container">
-    <h1>{{ t.heading_user_settings }}</h1>
-    
-    <div style="margin-top: 30px; display: flex; gap: 40px; align-items: flex-start;">
-        <div class="profile-photo-section" style="text-align: center;">
-            {% if user.photo_url %}
-                <img src="{{ user.photo_url }}" alt="Profile Photo" style="width: 150px; height: 150px; object-fit: cover; border-radius: 50%; border: 2px solid #ddd;">
-            {% else %}
-                <div style="width: 150px; height: 150px; background: #eee; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #999; border: 2px solid #ddd;">
-                    No Photo
-                </div>
-            {% endif %}
-            
-            <form action="/settings/user/upload-photo" method="post" enctype="multipart/form-data" style="margin-top: 15px;">
-                <input type="file" name="file" accept="image/*" required style="width: 200px; font-size: 0.8em;">
-                <br><br>
-                <button type="submit" class="btn-action" style="font-size: 0.8em; padding: 5px 10px;">Upload Photo</button>
-            </form>
-        </div>
+<div class="us-page">
+    <h1 class="us-title">{{ t.heading_user_settings }}</h1>
 
+    {# ── Feedback banner ── #}
+    {% if saved == "photo" %}
+    <div class="us-alert us-alert-success">{{ t.msg_photo_saved }}</div>
+    {% elif saved == "username" %}
+    <div class="us-alert us-alert-success">{{ t.msg_username_saved }}</div>
+    {% elif saved == "password" %}
+    <div class="us-alert us-alert-success">{{ t.msg_password_saved }}</div>
+    {% elif saved == "menu" %}
+    <div class="us-alert us-alert-success">{{ t.msg_menu_saved }}</div>
+    {% elif saved %}
+    <div class="us-alert us-alert-success">{{ t.msg_settings_saved }}</div>
+    {% endif %}
+
+    {% if error_key == "username_taken" %}
+    <div class="us-alert us-alert-error">{{ t.err_username_taken }}</div>
+    {% elif error_key == "current_password_incorrect" %}
+    <div class="us-alert us-alert-error">{{ t.err_current_password_incorrect }}</div>
+    {% elif error_key == "passwords_mismatch" %}
+    <div class="us-alert us-alert-error">{{ t.err_passwords_mismatch }}</div>
+    {% elif error_key %}
+    <div class="us-alert us-alert-error">{{ error_key }}</div>
+    {% endif %}
+
+    {# ── Profile summary ── #}
+    <div class="us-card us-profile-summary">
         <div>
-            <p>{{ t.msg_no_user_settings }}</p>
-            <p><a href="/settings/user/change-username" class="btn">{{ t.link_change_username }}</a></p>
-            <p><a href="/settings/user/change-password" class="btn">{{ t.link_change_password }}</a></p>
+            {% if user.photo_url %}
+                <img src="{{ user.photo_url }}" alt="Profile photo" class="us-avatar-img-lg">
+            {% else %}
+                <div class="us-avatar-initials-lg">{{ user.username[:2].upper() }}</div>
+            {% endif %}
         </div>
+        <div class="us-profile-info">
+            <div class="us-profile-name">{{ user.username }}</div>
+            <div class="us-profile-email">{{ user.email }}</div>
+            <div class="us-profile-provider">{{ user.provider or "local" }}</div>
+        </div>
+    </div>
+
+    {# ── Profile Photo ── #}
+    <div class="us-card">
+        <h2 class="us-card-title">{{ t.label_profile_photo }}</h2>
+        <form action="/settings/user/upload-photo" method="post" enctype="multipart/form-data" class="us-form">
+            <div class="us-field">
+                <label class="us-label">{{ t.label_profile_photo }}</label>
+                <input type="file" name="file" accept="image/*" class="us-file-input" required>
+                <div class="us-hint">JPEG, PNG, GIF, WebP — max 5 MB</div>
+            </div>
+            <div class="us-actions">
+                <button type="submit" class="us-btn">Upload</button>
+            </div>
+        </form>
+    </div>
+
+    {# ── Change Username ── #}
+    <div class="us-card">
+        <h2 class="us-card-title">{{ t.heading_change_your_username }}</h2>
+        <form action="/settings/user/change-username" method="post" class="us-form">
+            <div class="us-field">
+                <label class="us-label">{{ t.label_current_username }}</label>
+                <div class="us-current-value">{{ user.username }}</div>
+            </div>
+            <div class="us-field">
+                <label class="us-label" for="new_username">{{ t.label_new_username }}</label>
+                <input type="text" id="new_username" name="new_username" class="us-input"
+                       required autocomplete="username" spellcheck="false">
+            </div>
+            <div class="us-actions">
+                <button type="submit" class="us-btn">{{ t.btn_update_username }}</button>
+            </div>
+        </form>
+    </div>
+
+    {# ── Change Password ── #}
+    <div class="us-card">
+        <h2 class="us-card-title">{{ t.heading_change_your_password }}</h2>
+        <form action="/settings/user/change-password" method="post" class="us-form">
+            <div class="us-field">
+                <label class="us-label" for="current_password">{{ t.label_current_password }}</label>
+                <input type="password" id="current_password" name="current_password"
+                       class="us-input" required autocomplete="current-password">
+            </div>
+            <div class="us-field">
+                <label class="us-label" for="new_password">{{ t.label_new_password }}</label>
+                <input type="password" id="new_password" name="new_password"
+                       class="us-input" required minlength="8" autocomplete="new-password">
+            </div>
+            <div class="us-field">
+                <label class="us-label" for="confirm_password">{{ t.label_confirm_password }}</label>
+                <input type="password" id="confirm_password" name="confirm_password"
+                       class="us-input" required minlength="8" autocomplete="new-password">
+            </div>
+            <div class="us-actions">
+                <button type="submit" class="us-btn">{{ t.btn_update_password }}</button>
+            </div>
+        </form>
+    </div>
+
+    {# ── Preferences ── #}
+    <div class="us-card">
+        <h2 class="us-card-title">{{ t.heading_preferences }}</h2>
+        <form action="/settings/user/default-menu" method="post" class="us-form">
+            <div class="us-field">
+                <label class="us-label" for="default_menu">{{ t.label_default_menu }}</label>
+                <select id="default_menu" name="default_menu" class="us-select">
+                    <option value="">{{ t.option_no_default }}</option>
+                    {% for entry in menus_data.selector %}
+                        {% if entry.type == "item" %}
+                        <option value="{{ entry.id }}"
+                            {% if entry.id == user_default_menu %}selected{% endif %}>
+                            {{ entry.label }}
+                        </option>
+                        {% endif %}
+                    {% endfor %}
+                </select>
+                <div class="us-hint">{{ t.help_default_menu }}</div>
+            </div>
+            <div class="us-actions">
+                <button type="submit" class="us-btn">{{ t.btn_save_settings }}</button>
+            </div>
+        </form>
     </div>
 </div>
 {% endblock %}

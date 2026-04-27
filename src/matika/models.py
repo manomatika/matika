@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, Boolean, Text, ForeignKey, Table, Enum as SQLEnum, LargeBinary
+from sqlalchemy import Column, String, Integer, Boolean, Text, ForeignKey, Table, Enum as SQLEnum, LargeBinary, Index
 from sqlalchemy.orm import relationship, declarative_base
 from .core.constants import PageType, PermissionLevel
 
@@ -30,12 +30,19 @@ class UserSetting(Base):
 class Permission(Base):
     __tablename__ = "permissions"
     id = Column(Integer, primary_key=True, index=True)
-    page_path = Column(String, nullable=False) # e.g. "/admin/users"
+    page_path = Column(String, nullable=False, index=True)   # indexed: queried on every auth check
     page_type = Column(SQLEnum(PageType), nullable=False)
-    role_id = Column(Integer, ForeignKey("roles.id"), nullable=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    role_id = Column(Integer, ForeignKey("roles.id"), nullable=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     level = Column(SQLEnum(PermissionLevel), nullable=False, default=PermissionLevel.NONE)
     is_system = Column(Boolean, default=False)
+
+    __table_args__ = (
+        # Composite index covering the most common auth query pattern:
+        # WHERE page_path IN (...) AND (role_id IN (...) OR user_id = ?)
+        Index("ix_permissions_path_role", "page_path", "role_id"),
+        Index("ix_permissions_path_user", "page_path", "user_id"),
+    )
 
     role = relationship("Role", back_populates="permissions")
     user = relationship("User", back_populates="permissions")

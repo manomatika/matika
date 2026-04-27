@@ -1,9 +1,11 @@
 import logging
 import os
+import secrets
 from fastapi import FastAPI, Request, Depends
-from fastapi.responses import HTMLResponse, PlainTextResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 from sqlalchemy.orm import Session
 
@@ -13,7 +15,7 @@ from .database import SessionLocal, init_db, get_db, get_system_setting
 from .core.constants import PageType
 from .i18n import I18nService
 from .core.logging_config import (
-    setup_startup_logging, rotate_logs, cleanup_logs, finalize_logging, 
+    setup_startup_logging, rotate_logs, cleanup_logs, finalize_logging,
     ACTIVE_LOG, STARTUP_LOG, LOG_DIR
 )
 from .core.utils import format_num
@@ -23,7 +25,25 @@ from .core.applug_service import AppLugService
 
 # Environment & Testing Check
 IS_TESTING = "pytest" in os.environ.get("PYTEST_CURRENT_TEST", "") or "PYTEST_VERSION" in os.environ
-SECRET_KEY = os.environ.get("SECRET_KEY", "a-very-secret-key-for-development")
+
+# SECRET_KEY is required — hard-fail if not set.
+SECRET_KEY = os.environ.get("SECRET_KEY")
+if not SECRET_KEY:
+    raise RuntimeError(
+        "CRITICAL: SECRET_KEY environment variable is not set. "
+        "The application cannot start. Set it in your environment or .env file."
+    )
+
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Adds defensive HTTP security headers to every response."""
+    async def dispatch(self, request: Request, call_next) -> Response:
+        response = await call_next(request)
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        return response
+
 
 def create_app() -> FastAPI:
     # --- 1. LOGGING & INITIALIZATION ---
@@ -32,8 +52,8 @@ def create_app() -> FastAPI:
     rotate_logs(IS_TESTING)
 
     # --- 2. APP SETUP ---
-    from .auth.dependencies import get_current_user
-    
+    from .auth.dependencies import get_current_user, login_required
+
     def inject_user_to_state(request: Request, db: Session = Depends(get_db)):
         """Global dependency to ensure request.state.user is always populated."""
         if request.url.path.startswith("/static"):
@@ -41,9 +61,10 @@ def create_app() -> FastAPI:
         request.state.user = get_current_user(request, db)
 
     app = FastAPI(title="Matika", dependencies=[Depends(inject_user_to_state)])
-    
-    # Outer-most middleware runs FIRST on request
-    # max_age=None ensures the browser sees this as a session cookie (cleared on close).
+
+    # Middlewares — outermost runs first on request, last on response.
+    # max_age=None → session cookie (cleared on browser close).
+    app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY, max_age=None)
 
     # Mount static
@@ -66,14 +87,35 @@ def create_app() -> FastAPI:
 
     # Standard Jinja2 context processor
     def context_processor(request: Request):
-        service = request.app.state.app_lug_service
-        i18n = request.app.state.i18n
-        return {
-            "plugin_menu_items": service.get_all_menu_items(),
-            "t": i18n.get_text(request.headers.get("accept-language")),
-            "user": getattr(request.state, "user", None)
-        }
+        svc = request.app.state.app_lug_service
+        i18n_svc = request.app.state.i18n
+        user = getattr(request.state, "user", None)
+        t = i18n_svc.get_text(request.headers.get("accept-language"))
+        user_roles = [r.name for r in user.roles] if user else []
+        menus_data = svc.get_menus_for_context(user_roles, t)
 
+        # CSRF token: generate once per session, reuse thereafter.
+        csrf_token = request.session.get("csrf_token")
+        if not csrf_token:
+            csrf_token = secrets.token_urlsafe(32)
+            request.session["csrf_token"] = csrf_token
+
+        # User default menu preference (from user_settings table, eager-loaded).
+        user_default_menu = ""
+        if user:
+            for s in user.settings:
+                if s.name == "default_menu":
+                    user_default_menu = s.value or ""
+                    break
+
+        return {
+            "menus_data": menus_data,
+            "t": t,
+            "user": user,
+            "csrf_token": csrf_token,
+            "user_id": user.id if user else "",
+            "user_default_menu": user_default_menu,
+        }
 
     templates.context_processors.append(context_processor)
 
@@ -92,11 +134,16 @@ def create_app() -> FastAPI:
 
     # --- 4. CORE ENDPOINTS ---
     @app.get("/show-log", response_class=PlainTextResponse, tags=[PageType.INFO])
-    async def show_log(request: Request, type: str = "app", db: Session = Depends(get_db)):
+    async def show_log(
+        request: Request,
+        type: str = "app",
+        db: Session = Depends(get_db),
+        _user=Depends(login_required),          # authenticated users only
+    ):
         log_map = {
-            "app": (ACTIVE_LOG, "app_log_lines"), 
-            "startup": (STARTUP_LOG, "startup_log_lines"), 
-            "test": (os.path.join(LOG_DIR, "test_Matika.log"), "test_log_lines")
+            "app": (ACTIVE_LOG, "app_log_lines"),
+            "startup": (STARTUP_LOG, "startup_log_lines"),
+            "test": (os.path.join(LOG_DIR, "test_Matika.log"), "test_log_lines"),
         }
         path, setting = log_map.get(type, (ACTIVE_LOG, "app_log_lines"))
         if os.path.exists(path):
@@ -108,8 +155,10 @@ def create_app() -> FastAPI:
 
     return app
 
+
 # Main instance
 app = create_app()
+
 
 def init_plugins(app_instance: FastAPI, db: Session):
     """Discovers and registers plugins into the FastAPI app instance."""
@@ -117,6 +166,7 @@ def init_plugins(app_instance: FastAPI, db: Session):
     logger.info("Discovering plugins...")
     app_instance.state.app_lug_service.discover(db)
     logger.info(f"Loaded plugins: {len(app_instance.state.app_lug_service.loaded_plugins)}")
+
 
 # Initialize database & cleanup logs for real runs
 if not IS_TESTING:

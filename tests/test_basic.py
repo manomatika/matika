@@ -28,3 +28,55 @@ def test_login_page(client):
     response = client.get("/login")
     assert response.status_code == 200
     assert "login.html" in response.template.name
+
+
+# ---------------------------------------------------------------------------
+# Home page (redesigned dashboard)
+# ---------------------------------------------------------------------------
+
+def test_home_page_renders_welcome(client, test_user):
+    client.post("/login", data={"email": "test@example.com", "password": "testpassword"})
+    resp = client.get("/")
+    assert resp.status_code == 200
+    assert "testuser" in resp.text
+
+def test_home_page_shows_stats_for_admin(client, test_admin):
+    client.post("/login", data={"email": "admin@example.com", "password": "adminpassword"})
+    resp = client.get("/")
+    assert resp.status_code == 200
+    # Stats section should be present for admin
+    assert "heading_system_overview" in resp.text or "System Overview" in resp.text
+
+def test_home_page_no_stats_for_regular_user(client, test_user):
+    client.post("/login", data={"email": "test@example.com", "password": "testpassword"})
+    resp = client.get("/")
+    assert resp.status_code == 200
+    # Stats section must NOT appear for non-admin
+    assert "hp-stats-row" not in resp.text
+
+
+# ---------------------------------------------------------------------------
+# About page (redesigned)
+# ---------------------------------------------------------------------------
+
+def test_about_page_shows_version(client):
+    resp = client.get("/about")
+    assert resp.status_code == 200
+    # Version badge must be present
+    assert "abt-version-badge" in resp.text
+
+def test_about_page_shows_framework_components(client):
+    resp = client.get("/about")
+    assert "FastAPI" in resp.text
+    assert "SQLAlchemy" in resp.text
+    assert "Python" in resp.text
+
+def test_about_page_shows_installed_plugins(client):
+    resp = client.get("/about")
+    assert resp.status_code == 200
+    # mock_plugin is loaded in test environment
+    assert "mock_plugin" in resp.text
+
+def test_about_page_shows_copyright(client):
+    resp = client.get("/about")
+    assert "Tallman" in resp.text or "Copyright" in resp.text

@@ -16,3 +16,8 @@ logs/
 node_modules/
 package-lock.json
 src/matika/static/js/*.js
+plugins/eyerate
+# Per-developer plugin config — never commit (use plugins.dev.json.example as template)
+plugins.dev.json
+# Entire plugins/ symlink/clone tree — contents are injected at setup time
+plugins/

@@ -1,4 +1,5 @@
 export {};
+import { injectCsrfToken } from "./csrf.js";
 
 interface User {
     id: number;
@@ -131,8 +132,20 @@ document.addEventListener('DOMContentLoaded', () => {
         const nameCell = selectedRoleRow.querySelector('.col-name') as CellWithOriginal;
         const descCell = selectedRoleRow.querySelector('.col-desc') as CellWithOriginal;
         
-        nameCell.innerHTML = `<input type="text" class="edit-input" value="${nameCell.dataset.original}">`;
-        descCell.innerHTML = `<input type="text" class="edit-input" value="${descCell.dataset.original}">`;
+        // DOM construction to prevent XSS — never interpolate stored values into innerHTML.
+        const nameInput = document.createElement("input");
+        nameInput.type = "text";
+        nameInput.className = "edit-input";
+        nameInput.value = nameCell.dataset.original ?? "";
+        nameCell.textContent = "";
+        nameCell.appendChild(nameInput);
+
+        const descInput = document.createElement("input");
+        descInput.type = "text";
+        descInput.className = "edit-input";
+        descInput.value = descCell.dataset.original ?? "";
+        descCell.textContent = "";
+        descCell.appendChild(descInput);
         
         nameCell.querySelector('input')!.addEventListener('input', checkChanges);
         descCell.querySelector('input')!.addEventListener('input', checkChanges);
@@ -232,7 +245,7 @@ document.addEventListener('DOMContentLoaded', () => {
         
         if (confirm(`Are you sure you want to delete role '${roleName}'?`)) {
             roleForm.action = `/admin/roles/delete/${roleId}`;
-            roleForm.submit();
+            injectCsrfToken(roleForm); roleForm.submit();
         }
     }
 

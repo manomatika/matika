@@ -3,62 +3,59 @@
 <head>
     <link rel="stylesheet" href="/static/css/style.css">
     <title>{% block title %}{{ t.title }}{% endblock %}</title>
+    <meta name="csrf-token" content="{{ csrf_token | default('') }}">
+    <meta name="user-id" content="{{ user_id | default('') }}">
+    <meta name="user-default-menu" content="{{ user_default_menu | default('') }}">
     <style>
-        .dropdown div.menu-separator {
+        /* User-zone dropdown separator (inline to avoid coupling to hub styles) */
+        .menu-zone-user .dropdown div.menu-separator {
             padding: 0;
             height: 1px;
             background-color: #ddd;
             margin: 5px 0;
-            pointer-events: none; /* Don't highlight on hover */
+            pointer-events: none;
         }
     </style>
 </head>
 <body>
     <div class="menu-bar">
-        <div class="menu-item" data-href="/">{{ t.item_home or 'Home' }}</div>
 
-        <div class="menu-item">{{ t.menu_activities or 'Activities' }}
-            <div class="dropdown">
-                {% for item in plugin_menu_items %}
-                    <div data-href="{{ item.href }}">{{ t[item.label_key] or item.label_key }}</div>
-                {% endfor %}
-            </div>
-        </div>
-{% if user and 'Admin' in user.roles | map(attribute='name') %}
-<div class="menu-item">{{ t.menu_admin or 'Admin' }}
-    <div class="dropdown">
-        <div data-href="/admin/roles">{{ t.item_roles or 'Roles' }}</div>
-        <div data-href="/admin/permissions">{{ t.item_permissions or 'Permissions' }}</div>
-        <div data-href="/admin/users">{{ t.item_users or 'Users' }}</div>
-        <div class="menu-separator"></div>
-        <div data-href="/settings/system">{{ t.item_system_settings }}</div>
-        <div data-href="/admin/settings/export">{{ t.link_system_export }}</div>
-        <div data-href="/admin/settings/import">{{ t.link_system_import }}</div>
-    </div>
-</div>
-{% endif %}
+        <!-- Zone 1: Logo -->
+        <a href="/" class="menu-zone-logo" aria-label="{{ t.item_home or 'Home' }}">
+            <img src="/static/img/matika_icon_32.png"
+                 srcset="/static/img/matika_icon_32.png 1x, /static/img/matika_icon_64.png 2x"
+                 alt="Matika"
+                 class="logo-img"
+                 width="32" height="32">
+        </a>
 
-<div class="menu-item">{{ t.menu_help }}
-            <div class="dropdown">
-                <div data-href="/show-log" data-target="_blank">{{ t.item_show_log }}</div>
-                <div data-href="/about">{{ t.item_about }}</div>
+        <!-- Zone 2: Menu Hub (selector + active items, populated by main.js) -->
+        <div class="menu-zone-hub" id="menu-zone-hub">
+            <div class="menu-selector" id="menu-selector">
+                <button class="menu-selector-trigger" id="menu-selector-trigger"
+                        type="button" aria-haspopup="listbox" aria-expanded="false"></button>
+                <div class="menu-selector-panel" id="menu-selector-panel">
+                    <div class="menu-selector-list" id="menu-selector-list" role="listbox"></div>
+                </div>
             </div>
+            <div class="menu-hub-items" id="menu-hub-items"></div>
         </div>
 
-        <div class="user-info">
+        <!-- Zone 3: User (hover-based dropdown, unchanged) -->
+        <div class="menu-zone-user">
             {% if user %}
-                <span>{{ t.msg_logged_in_as }} {{ user.email }}</span>
-                
+                <span class="logged-in-label">{{ t.msg_logged_in_as }} {{ user.email }}</span>
                 <div class="menu-item" style="padding: 0;">
                     {% if user.photo_url %}
                         <img src="{{ user.photo_url }}" class="user-photo" alt="User Photo">
                     {% else %}
-                        <div class="user-photo" style="display: flex; align-items: center; justify-content: center; font-size: 10px; color: #666;">
+                        <div class="user-photo" style="display:flex;align-items:center;justify-content:center;font-size:10px;color:#666;">
                             {{ user.username[:2].upper() }}
                         </div>
                     {% endif %}
-                    <div class="dropdown" style="left: auto; right: 0;">
+                    <div class="dropdown" style="left:auto;right:0;">
                         <div data-href="/settings/user">{{ t.item_user_settings }}</div>
+                        <div class="menu-separator"></div>
                         <div data-href="/settings/export">{{ t.link_export_data }}</div>
                         <div data-href="/settings/import">{{ t.link_import_data }}</div>
                         <div class="menu-separator"></div>
@@ -67,12 +64,14 @@
                 </div>
             {% endif %}
         </div>
+
     </div>
 
     <div class="content">
         {% block content %}{% endblock %}
     </div>
 
+    <script type="application/json" id="matika-menus">{{ menus_data | tojson }}</script>
     <script src="/static/js/main.js" type="module"></script>
 </body>
 </html>

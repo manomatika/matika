@@ -3,28 +3,125 @@
 {% block title %}{{ t.heading_about }}{% endblock %}
 
 {% block content %}
-<div style="text-align: center; margin-top: 50px; max-width: 600px; margin-left: auto; margin-right: auto;">
-    <h1>Matika</h1>
-    <p style="font-size: 1.2em;">{{ t.label_version }} {{ version }}</p>
-    
-    <div style="margin-top: 40px; text-align: left; padding: 20px; border: 1px solid #eee; border-radius: 8px; background-color: #fafafa;">
-        <h3 style="margin-top: 0; border-bottom: 1px solid #ddd; padding-bottom: 10px;">{{ t.heading_plugins }}</h3>
+<div class="abt-page">
+
+    {# ── Hero ── #}
+    <div class="abt-hero">
+        <img src="/static/img/matika_icon_64.png"
+             srcset="/static/img/matika_icon_64.png 1x, /static/img/matika_icon_128.png 2x"
+             alt="Matika"
+             class="abt-logo-img"
+             width="60" height="60">
+        <div>
+            <div class="abt-app-name">Matika</div>
+            <div class="abt-app-tagline">Dynamic AppLug Framework</div>
+            <div class="abt-version-badge">v{{ version }}</div>
+        </div>
+    </div>
+
+    {# ── About ── #}
+    <div class="abt-card">
+        <div class="abt-card-title">About</div>
+        <p class="abt-description">
+            Matika is a high-performance, plugin-agnostic framework built on
+            <strong>FastAPI</strong> and <strong>TypeScript</strong>. It provides
+            a zero-knowledge core — authentication, RBAC, dynamic navigation, and
+            security — that can be extended at runtime by <strong>AppLugs</strong>
+            (plugins) without the core having any prior knowledge of them.
+        </p>
+        <div class="abt-feature-grid">
+            <div class="abt-feature-item">
+                <span class="abt-feature-bullet">▸</span>
+                <span>Dynamic plugin discovery &amp; loading</span>
+            </div>
+            <div class="abt-feature-item">
+                <span class="abt-feature-bullet">▸</span>
+                <span>Role-Based Access Control (RBAC)</span>
+            </div>
+            <div class="abt-feature-item">
+                <span class="abt-feature-bullet">▸</span>
+                <span>Menu Hub with selector &amp; role caching</span>
+            </div>
+            <div class="abt-feature-item">
+                <span class="abt-feature-bullet">▸</span>
+                <span>CSRF, rate limiting &amp; security headers</span>
+            </div>
+            <div class="abt-feature-item">
+                <span class="abt-feature-bullet">▸</span>
+                <span>SQLite → PostgreSQL via one env var</span>
+            </div>
+            <div class="abt-feature-item">
+                <span class="abt-feature-bullet">▸</span>
+                <span>Alembic versioned schema migrations</span>
+            </div>
+            <div class="abt-feature-item">
+                <span class="abt-feature-bullet">▸</span>
+                <span>Internationalization with plugin overrides</span>
+            </div>
+            <div class="abt-feature-item">
+                <span class="abt-feature-bullet">▸</span>
+                <span>bcrypt auth · JWT · OAuth (Google / GitHub)</span>
+            </div>
+        </div>
+    </div>
+
+    {# ── Installed AppLugs ── #}
+    <div class="abt-card">
+        <div class="abt-card-title">{{ t.heading_plugins }}</div>
         {% if plugins %}
-            <ul style="list-style: none; padding: 0;">
-            {% for plugin in plugins %}
-                <li style="margin-bottom: 10px; display: flex; justify-content: space-between;">
-                    <span style="font-weight: bold;">{{ plugin.id }}</span>
-                    <span style="color: #666;">v{{ plugin.version }}</span>
-                </li>
-            {% endfor %}
-            </ul>
+        <table class="abt-table">
+            <thead>
+                <tr>
+                    <th>{{ t.th_name }}</th>
+                    <th>{{ t.label_version }}</th>
+                    <th>ID</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for p in plugins %}
+                <tr>
+                    <td>
+                        <div>{{ p.name }}</div>
+                        {% if p.description %}
+                        <div class="abt-plugin-description">{{ p.description }}</div>
+                        {% endif %}
+                    </td>
+                    <td><span class="abt-tag">v{{ p.version }}</span></td>
+                    <td><span class="abt-tag">{{ p.id }}</span></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
         {% else %}
-            <p style="color: #999; font-style: italic;">No plugins loaded.</p>
+        <div class="abt-empty">No AppLugs are currently loaded.</div>
         {% endif %}
     </div>
 
-    <div style="margin-top: 60px; color: #666; font-size: 0.9em;">
+    {# ── Framework Components ── #}
+    <div class="abt-card">
+        <div class="abt-card-title">{{ t.heading_framework_components }}</div>
+        <table class="abt-table">
+            <thead>
+                <tr>
+                    <th>Component</th>
+                    <th>{{ t.label_version }}</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for name, ver in components %}
+                <tr>
+                    <td>{{ name }}</td>
+                    <td><span class="abt-tag">{{ ver }}</span></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    {# ── Footer ── #}
+    <div class="abt-footer">
         <p>{{ t.label_copyright }}</p>
     </div>
+
 </div>
 {% endblock %}

@@ -1,4 +1,5 @@
 export {};
+import { injectCsrfToken } from "./csrf.js";
 
 interface UserRow extends HTMLTableRowElement {
     dataset: DOMStringMap & {
@@ -128,11 +129,22 @@ document.addEventListener('DOMContentLoaded', () => {
         const originalEmail = emailCell.dataset.original;
         const originalForcePw = forcePwCell.dataset.original === 'true';
         
-        emailCell.innerHTML = `<input type="text" class="edit-input" value="${originalEmail}">`;
-        forcePwCell.innerHTML = `<input type="checkbox" ${originalForcePw ? 'checked' : ''}>`;
-        
-        emailCell.querySelector('input')!.addEventListener('input', checkChanges);
-        forcePwCell.querySelector('input')!.addEventListener('change', checkChanges);
+        // Use DOM construction to avoid XSS — never interpolate user data into innerHTML.
+        const emailInput = document.createElement("input");
+        emailInput.type = "text";
+        emailInput.className = "edit-input";
+        emailInput.value = originalEmail ?? "";
+        emailCell.textContent = "";
+        emailCell.appendChild(emailInput);
+
+        const pwCheckbox = document.createElement("input");
+        pwCheckbox.type = "checkbox";
+        if (originalForcePw) pwCheckbox.checked = true;
+        forcePwCell.textContent = "";
+        forcePwCell.appendChild(pwCheckbox);
+
+        emailInput.addEventListener("input", checkChanges);
+        pwCheckbox.addEventListener("change", checkChanges);
 
         updateButtonStates();
     }
@@ -179,7 +191,7 @@ document.addEventListener('DOMContentLoaded', () => {
             actionForm.action = '/admin/users/create';
             formUsername.value = usernameInput.value;
             formEmail.value = emailInput.value;
-            actionForm.submit();
+            injectCsrfToken(actionForm); actionForm.submit();
             return;
         }
 
@@ -212,7 +224,7 @@ document.addEventListener('DOMContentLoaded', () => {
         
         if (confirm('Are you sure you want to delete this user?')) {
             actionForm.action = `/admin/users/delete/${userId}`;
-            actionForm.submit();
+            injectCsrfToken(actionForm); actionForm.submit();
         }
     }
 
