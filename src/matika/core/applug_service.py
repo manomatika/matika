@@ -199,9 +199,7 @@ class AppLugService:
         raw = self.menu_loader.load_all()
 
         # ------ filter & translate -------
-        # filtered[source] = role-filtered raw menu dicts (for role analysis)
         # translated[source] = client-ready translated menu dicts
-        filtered: Dict[str, List[Dict]] = {}
         translated: Dict[str, List[Dict]] = {}
 
         for source, menus in raw.items():
@@ -212,7 +210,6 @@ class AppLugService:
                 )
                 continue
 
-            f_list: List[Dict] = []
             t_list: List[Dict] = []
             for menu in menus:
                 if not menu_is_visible(menu, user_roles):
@@ -221,15 +218,13 @@ class AppLugService:
                 if not filtered_items:
                     # All items were role-filtered away; hide the menu entirely.
                     continue
-                f_list.append({**menu, "items": filtered_items})
                 t_list.append({
                     "id": menu["id"],
                     "label": t.get(menu["label_key"], menu["label_key"]),
                     "type": "Menu",   # Hub rendering type; menu category is for selector only
                     "items": translate_items(filtered_items, t),
                 })
-            if f_list:
-                filtered[source] = f_list
+            if t_list:
                 translated[source] = t_list
 
         # ------ selector ------
@@ -259,20 +254,37 @@ class AppLugService:
             selector.extend(app_entries)
 
         # ------ role hubs (computed here so seen_roles is ready for the selector) ------
-        # Each role hub is driven entirely by *_menu.json, using the same
-        # filter_items / menu_is_visible mechanism as Path A — just applied
-        # with a single-element role list so each hub shows exactly what
-        # that role's menus declare, independent of DB permissions.
+        # Role hubs contain ONLY core menus of type "Role" that explicitly
+        # declare the role in their roles field, plus System (Help) last.
+        # Application-type menus (plugins) are never included — they belong
+        # in the Default and per-AppLug hubs only.  This ensures that
+        # admin_menu.json (type Role, roles: ["Admin"]) appears in the Admin
+        # hub, while eyerate_menu.json (type Application) does not.
         seen_roles: List[str] = []
         role_hubs: Dict[str, List[Dict]] = {}
 
         for role_name in user_roles:
             r_hub: List[Dict] = []
 
-            # Plugin menus first
-            for plugin_id in self.loaded_plugins:
-                for menu in raw.get(plugin_id, []):
-                    if not menu_is_visible(menu, [role_name]):
+            # Core Role-type menus where this role is explicitly declared
+            for menu in raw.get("core", []):
+                if menu.get("type") != "Role":
+                    continue
+                if role_name not in menu.get("roles", []):
+                    continue
+                items = filter_items(menu.get("items", []), [role_name])
+                if items:
+                    r_hub.append({
+                        "id": menu["id"],
+                        "label": t.get(menu["label_key"], menu["label_key"]),
+                        "type": "Menu",
+                        "items": translate_items(items, t),
+                    })
+
+            # System (Help) menus last — only when hub has other content
+            if r_hub:
+                for menu in raw.get("core", []):
+                    if menu.get("type") != "System":
                         continue
                     items = filter_items(menu.get("items", []), [role_name])
                     if items:
@@ -282,36 +294,6 @@ class AppLugService:
                             "type": "Menu",
                             "items": translate_items(items, t),
                         })
-
-            # Core non-System menus
-            for menu in raw.get("core", []):
-                if menu.get("type") == "System":
-                    continue
-                if not menu_is_visible(menu, [role_name]):
-                    continue
-                items = filter_items(menu.get("items", []), [role_name])
-                if items:
-                    r_hub.append({
-                        "id": menu["id"],
-                        "label": t.get(menu["label_key"], menu["label_key"]),
-                        "type": "Menu",
-                        "items": translate_items(items, t),
-                    })
-
-            # System (Help) menus last
-            for menu in raw.get("core", []):
-                if menu.get("type") != "System":
-                    continue
-                if not menu_is_visible(menu, [role_name]):
-                    continue
-                items = filter_items(menu.get("items", []), [role_name])
-                if items:
-                    r_hub.append({
-                        "id": menu["id"],
-                        "label": t.get(menu["label_key"], menu["label_key"]),
-                        "type": "Menu",
-                        "items": translate_items(items, t),
-                    })
 
             if r_hub:
                 seen_roles.append(role_name)
