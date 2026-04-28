@@ -118,7 +118,8 @@ document.addEventListener('DOMContentLoaded', () => {
             <td class="col-desc"><input type="text" class="edit-input" placeholder="Description"></td>
         `;
         rolesTableBody.prepend(tr);
-        
+        selectedRoleRow = tr;
+
         tr.querySelector('.col-name input')!.addEventListener('input', checkChanges);
         tr.querySelector('.col-desc input')!.addEventListener('input', checkChanges);
 
@@ -234,8 +235,8 @@ document.addEventListener('DOMContentLoaded', () => {
         formRoleName.value = name;
         formRoleDesc.value = desc;
         formUserIds.value = currentAssignedUserIds.join(',');
-        
-        roleForm.submit();
+
+        injectCsrfToken(roleForm); roleForm.submit();
     }
 
     function handleDeleteRole() {
@@ -254,6 +255,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const target = e.target as HTMLElement;
         const row = target.closest('tr') as RoleRow;
         if (row && rolesTableBody.contains(row)) {
+            if (row.id === 'temp-row') return;
             selectRole(row);
         }
     });
