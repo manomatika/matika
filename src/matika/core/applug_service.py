@@ -187,8 +187,13 @@ class AppLugService:
         """
         Builds the full menu hub structure for template injection.
 
-        Applies server-side role filtering (non-admin users never receive
-        admin URLs) and pre-translates all label_key fields.
+        Core menus (admin_menu.json etc.) come from menu_loader.load_all().
+        Plugin application and role menus come from menu_loader.load_applug_menus(),
+        which reads the consolidated *_menus.json file in each plugin directory.
+
+        Every role the authenticated user holds appears in the Roles section of
+        the selector, whether or not a *_menus.json defines content for that role.
+        Roles without plugin-defined content still receive the Help menu.
 
         Returns:
             {
@@ -197,51 +202,57 @@ class AppLugService:
             }
         """
         raw = self.menu_loader.load_all()
+        applug_menus = self.menu_loader.load_applug_menus()
 
-        # ------ filter & translate -------
-        # translated[source] = client-ready translated menu dicts
-        translated: Dict[str, List[Dict]] = {}
-
-        for source, menus in raw.items():
-            # Skip menu files for plugins that failed to load.
-            if source != "core" and source not in self.loaded_plugins:
-                logger.warning(
-                    "Menu files found for unloaded plugin '%s' — skipping.", source
-                )
+        # ------ translate core menus -------
+        translated_core: List[Dict] = []
+        for menu in raw.get("core", []):
+            if not menu_is_visible(menu, user_roles):
                 continue
+            filtered_items = filter_items(menu.get("items", []), user_roles)
+            if not filtered_items:
+                continue
+            translated_core.append({
+                "id": menu["id"],
+                "label": t.get(menu["label_key"], menu["label_key"]),
+                "type": "Menu",
+                "items": translate_items(filtered_items, t),
+                "_menu_type": menu.get("type", ""),
+            })
 
-            t_list: List[Dict] = []
-            for menu in menus:
-                if not menu_is_visible(menu, user_roles):
-                    continue
-                filtered_items = filter_items(menu.get("items", []), user_roles)
-                if not filtered_items:
-                    # All items were role-filtered away; hide the menu entirely.
-                    continue
-                t_list.append({
-                    "id": menu["id"],
-                    "label": t.get(menu["label_key"], menu["label_key"]),
-                    "type": "Menu",   # Hub rendering type; menu category is for selector only
-                    "items": translate_items(filtered_items, t),
-                })
-            if t_list:
-                translated[source] = t_list
+        core_menu_type: Dict[str, str] = {
+            m["id"]: m.get("type", "") for m in raw.get("core", [])
+        }
+        core_help_menus = [m for m in translated_core if core_menu_type.get(m["id"]) == "System"]
+        core_non_help_menus = [m for m in translated_core if core_menu_type.get(m["id"]) != "System"]
+
+        # ------ plugin application menus -------
+        # {plugin_id: translated_menu_dict} for plugins with a visible application section.
+        plugin_app_translated: Dict[str, Dict] = {}
+        for plugin_id, plugin in self.loaded_plugins.items():
+            app_section = applug_menus.get(plugin_id, {}).get("application")
+            if not app_section:
+                continue
+            filtered = filter_items(app_section.get("items", []), user_roles)
+            if not filtered:
+                continue
+            plugin_app_translated[plugin_id] = {
+                "id": app_section.get("id", plugin_id),
+                "label": t.get(app_section["label_key"], app_section["label_key"]),
+                "type": "Menu",
+                "items": translate_items(filtered, t),
+            }
 
         # ------ selector ------
-        # Built as a structured list with type discriminants understood by the client:
-        #   "item"      — selectable entry that activates a hub
-        #   "separator" — visual horizontal rule
-        #   "header"    — non-selectable section label (grey text)
         selector: List[Dict] = [
             {"type": "item", "id": "__default__", "label": t.get("menu_type_default", "Default")},
             {"type": "separator"},
             {"type": "item", "id": "__favorites__", "label": t.get("menu_type_favorites", "Favorites")},
         ]
 
-        # Applications section — only when at least one plugin has visible menus.
         app_entries: List[Dict] = []
         for plugin_id, plugin in self.loaded_plugins.items():
-            if plugin_id in translated:
+            if plugin_id in plugin_app_translated:
                 label = (
                     plugin.manifest.get("display_name")
                     or plugin.manifest.get("name", plugin_id)
@@ -253,20 +264,19 @@ class AppLugService:
             selector.append({"type": "header", "label": t.get("menu_section_applications", "Applications")})
             selector.extend(app_entries)
 
-        # ------ role hubs (computed here so seen_roles is ready for the selector) ------
-        # Role hubs contain ONLY core menus of type "Role" that explicitly
-        # declare the role in their roles field, plus System (Help) last.
-        # Application-type menus (plugins) are never included — they belong
-        # in the Default and per-AppLug hubs only.  This ensures that
-        # admin_menu.json (type Role, roles: ["Admin"]) appears in the Admin
-        # hub, while eyerate_menu.json (type Application) does not.
+        # ------ role hubs -------
+        # Every role the user holds appears in the selector.
+        # Each hub is built from:
+        #   1. Core Role-type menus that explicitly declare this role
+        #   2. Plugin role menus from *_menus.json roles section
+        #   3. System (Help) menus — always last
         seen_roles: List[str] = []
         role_hubs: Dict[str, List[Dict]] = {}
 
         for role_name in user_roles:
             r_hub: List[Dict] = []
 
-            # Core Role-type menus where this role is explicitly declared
+            # Core Role-type menus for this role
             for menu in raw.get("core", []):
                 if menu.get("type") != "Role":
                     continue
@@ -281,25 +291,32 @@ class AppLugService:
                         "items": translate_items(items, t),
                     })
 
-            # System (Help) menus last — only when hub has other content
-            if r_hub:
-                for menu in raw.get("core", []):
-                    if menu.get("type") != "System":
-                        continue
-                    items = filter_items(menu.get("items", []), [role_name])
-                    if items:
-                        r_hub.append({
-                            "id": menu["id"],
-                            "label": t.get(menu["label_key"], menu["label_key"]),
-                            "type": "Menu",
-                            "items": translate_items(items, t),
-                        })
+            # Plugin role menus for this role
+            for plugin_id in self.loaded_plugins:
+                role_entry = applug_menus.get(plugin_id, {}).get("roles", {}).get(role_name)
+                if not role_entry:
+                    continue
+                items = filter_items(role_entry.get("items", []), user_roles)
+                if items:
+                    r_hub.extend(translate_items(items, t))
 
-            if r_hub:
-                seen_roles.append(role_name)
-                role_hubs[role_name] = r_hub
+            # System (Help) always last in every role hub
+            for menu in raw.get("core", []):
+                if menu.get("type") != "System":
+                    continue
+                items = filter_items(menu.get("items", []), [role_name])
+                if items:
+                    r_hub.append({
+                        "id": menu["id"],
+                        "label": t.get(menu["label_key"], menu["label_key"]),
+                        "type": "Menu",
+                        "items": translate_items(items, t),
+                    })
 
-        # Roles section — roles that have at least one visible menu item.
+            # Every held role appears in the selector
+            seen_roles.append(role_name)
+            role_hubs[role_name] = r_hub
+
         if seen_roles:
             selector.append({"type": "separator"})
             selector.append({"type": "header", "label": t.get("menu_section_roles", "Roles")})
@@ -309,49 +326,32 @@ class AppLugService:
         # ------ hubs ------
         hubs: Dict[str, List] = {}
 
-        # Identify System-type (Help) core menus for consistent ordering and
-        # inclusion as the last item in every hub.
-        core_menu_type: Dict[str, str] = {
-            m["id"]: m.get("type", "") for m in raw.get("core", [])
-        }
-        core_help_menus = [
-            m for m in translated.get("core", [])
-            if core_menu_type.get(m["id"]) == "System"
-        ]
-        core_non_help_menus = [
-            m for m in translated.get("core", [])
-            if core_menu_type.get(m["id"]) != "System"
-        ]
-
-        # Default hub: plugins first, then core non-help, then Help last.
+        # Default hub: plugin app items first, then core non-help, then Help.
         default_hub: List[Dict] = []
         for plugin_id, plugin in self.loaded_plugins.items():
-            if plugin_id in translated:
-                all_items: List[Dict] = []
-                for menu in translated[plugin_id]:
-                    all_items.extend(menu["items"])
-                if all_items:
+            if plugin_id in plugin_app_translated:
+                tm = plugin_app_translated[plugin_id]
+                if tm["items"]:
                     display_label = (
                         plugin.manifest.get("display_name")
                         or plugin.manifest.get("name", plugin_id)
                     )
-                    default_hub.append({"label": display_label, "type": "Menu", "items": all_items})
+                    default_hub.append({"label": display_label, "type": "Menu", "items": tm["items"]})
         for menu in core_non_help_menus:
             default_hub.append({"label": menu["label"], "type": "Menu", "items": menu["items"]})
         for menu in core_help_menus:
             default_hub.append({"label": menu["label"], "type": "Menu", "items": menu["items"]})
         hubs["__default__"] = default_hub
 
-        # Per-AppLug hub: plugin menus followed by Help last.
+        # Per-AppLug hub: translated application menu + Help.
         for plugin_id in self.loaded_plugins:
-            if plugin_id in translated:
-                hubs[plugin_id] = translated[plugin_id] + core_help_menus
+            if plugin_id in plugin_app_translated:
+                hubs[plugin_id] = [plugin_app_translated[plugin_id]] + core_help_menus
 
-        # Per-Role hub: built above from *_menu.json filtered per role.
+        # Per-Role hub.
         for role_name, r_hub in role_hubs.items():
             hubs[f"__role_{role_name}__"] = r_hub
 
-        # Favorites hub — reserved for future use.
         hubs["__favorites__"] = []
 
         return {"selector": selector, "hubs": hubs}

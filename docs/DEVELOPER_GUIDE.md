@@ -138,7 +138,83 @@ All tests must pass before committing. No skipped or `xfail` tests without expli
 
 Every AppLug directory must contain:
 - `applug.json` — manifest with `id`, `version`, `name`, `matika_version`, `entry_point`, optional `display_name` and `permissions`
-- `<id>_menu.json` — at least one menu file (schema v1.0)
+- `<id>_menus.json` — consolidated menu file (schema v1.0, see below)
 - A Python class extending `BaseAppLug` with `on_load(db)` and `on_unload(db)`
+
+### `*_menus.json` schema
+
+The consolidated menu file is the sole source of truth for all menus an AppLug contributes. Menu structure is never stored in the database — it is loaded from this file and cached in memory at startup.
+
+```json
+{
+  "schema_version": "1.0",
+  "menus": {
+    "application": {
+      "id": "eyerate-main",
+      "label_key": "menu_eyerate",
+      "items": [
+        { "type": "Link", "label_key": "item_securities", "href": "/eyerate/securities" }
+      ]
+    },
+    "roles": [
+      {
+        "role": "User",
+        "id": "eyerate-user",
+        "label_key": "menu_eyerate",
+        "items": [
+          {
+            "type": "Menu",
+            "label_key": "menu_eyerate",
+            "items": [
+              { "type": "Link", "label_key": "item_securities", "href": "/eyerate/securities" }
+            ]
+          }
+        ]
+      },
+      {
+        "role": "Admin",
+        "id": "eyerate-admin",
+        "label_key": "menu_eyerate",
+        "items": [
+          {
+            "type": "Menu",
+            "label_key": "menu_eyerate",
+            "items": [
+              { "type": "Link", "label_key": "item_eyerate_admin", "href": "/eyerate/admin" }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+**Sections (all optional):**
+
+| Key | Purpose | Selector placement |
+|---|---|---|
+| `application` | App-wide menu visible to all authenticated users | Applications section |
+| `roles` | Per-role menus; each entry targets one role by name | Roles section (only if user holds that role) |
+
+- `application` — omit if the AppLug needs no application menu
+- `roles` — omit if the AppLug contributes no role-specific menus; add as many role entries as needed
+- Future menu types just add a new key under `menus`
+
+**Full menu matrix (EyeRate as reference):**
+
+| | User role | Admin role |
+|---|---|---|
+| Application menu (`/eyerate/securities`) | visible | visible |
+| Role hub — User | visible | hidden |
+| Role hub — Admin | hidden | visible |
+| `/eyerate/securities` permission | FULL | FULL |
+| `/eyerate/admin` permission | NONE | FULL |
+
+**Startup warning:** If an AppLug directory contains a `*_permission.json` file but no `*_menus.json`, Matika logs a loud warning at startup:
+```
+WARNING: AppLug '<id>' declares permissions but provides no *_menus.json.
+Its pages will be unreachable from any menu. This is likely a development oversight.
+```
 
 See `doc/ARCHITECTURE.md` for the full AppLug contract and `doc/INSTALL.md` for installation steps.

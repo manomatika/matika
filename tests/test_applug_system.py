@@ -48,6 +48,7 @@ def mock_plugin(plugin_dir):
     with open(os.path.join(p_path, "applug.json"), "w") as f:
         json.dump(manifest, f)
 
+    # Legacy *_menu.json — still discovered by MenuLoaderService.load_all()
     menu_data = {
         "schema_version": "1.0",
         "menus": [
@@ -63,6 +64,23 @@ def mock_plugin(plugin_dir):
     }
     with open(os.path.join(p_path, "test_plugin_menu.json"), "w") as f:
         json.dump(menu_data, f)
+
+    # Consolidated *_menus.json — used by load_applug_menus() for application hub
+    menus_data = {
+        "schema_version": "1.0",
+        "menus": {
+            "application": {
+                "id": "test-main",
+                "label_key": "test_item",
+                "items": [
+                    {"type": "Link", "label_key": "test_item", "href": "/test/plugin/page",
+                     "roles": ["Admin", "User"]}
+                ]
+            }
+        }
+    }
+    with open(os.path.join(p_path, "test_plugin_menus.json"), "w") as f:
+        json.dump(menus_data, f)
 
     with open(os.path.join(p_path, "plugin.py"), "w") as f:
         f.write(MOCK_PLUGIN_CONTENT)
@@ -115,13 +133,12 @@ def test_plugin_menu_loading(plugin_dir, mock_plugin, db):
     assert plugin_menus[0]["type"] == "Application"
 
 def test_plugin_menus_in_context(plugin_dir, mock_plugin, db):
-    """get_menus_for_context includes loaded plugin menus in the hub."""
+    """get_menus_for_context includes plugin in selector and hub via *_menus.json."""
     service = AppLugService(plugins_dir=plugin_dir)
     service.discover(db)
 
     result = service.get_menus_for_context(user_roles=["Admin"], t={})
 
-    # Only "item"-type entries have an id field in the new discriminated selector.
     selector_item_ids = [e["id"] for e in result["selector"] if e.get("type") == "item"]
     assert "test_plugin" in selector_item_ids
     assert "test_plugin" in result["hubs"]
@@ -226,24 +243,21 @@ def test_display_name_used_in_selector_over_name(plugin_dir, db):
     with open(os.path.join(p_path, "applug.json"), "w") as f:
         json.dump(manifest, f)
 
-    menu_data = {
+    menus_data = {
         "schema_version": "1.0",
-        "menus": [{"id": "named-main", "label_key": "k", "type": "Application",
-                   "items": [{"type": "Link", "label_key": "k", "href": "/named/page"}]}],
+        "menus": {
+            "application": {
+                "id": "named-main",
+                "label_key": "k",
+                "items": [{"type": "Link", "label_key": "k", "href": "/named/page"}],
+            }
+        },
     }
-    with open(os.path.join(p_path, "named_plugin_menu.json"), "w") as f:
-        json.dump(menu_data, f)
+    with open(os.path.join(p_path, "named_plugin_menus.json"), "w") as f:
+        json.dump(menus_data, f)
 
     with open(os.path.join(p_path, "plugin.py"), "w") as f:
         f.write(MOCK_PLUGIN_CONTENT)
-
-    # Seed permission so the page is accessible
-    admin_role = db.query(Role).filter(Role.name == "Admin").first()
-    db.add(Permission(
-        page_path="/named/page", page_type=PageType.MAINTENANCE,
-        role_id=admin_role.id, level=PermissionLevel.FULL, is_system=True,
-    ))
-    db.commit()
 
     service = AppLugService(plugins_dir=plugin_dir)
     service.discover(db)
@@ -267,23 +281,21 @@ def test_display_name_falls_back_to_name(plugin_dir, db):
     with open(os.path.join(p_path, "applug.json"), "w") as f:
         json.dump(manifest, f)
 
-    menu_data = {
+    menus_data = {
         "schema_version": "1.0",
-        "menus": [{"id": "nodn-main", "label_key": "k", "type": "Application",
-                   "items": [{"type": "Link", "label_key": "k", "href": "/nodn/page"}]}],
+        "menus": {
+            "application": {
+                "id": "nodn-main",
+                "label_key": "k",
+                "items": [{"type": "Link", "label_key": "k", "href": "/nodn/page"}],
+            }
+        },
     }
-    with open(os.path.join(p_path, "nodn_plugin_menu.json"), "w") as f:
-        json.dump(menu_data, f)
+    with open(os.path.join(p_path, "nodn_plugin_menus.json"), "w") as f:
+        json.dump(menus_data, f)
 
     with open(os.path.join(p_path, "plugin.py"), "w") as f:
         f.write(MOCK_PLUGIN_CONTENT)
-
-    admin_role = db.query(Role).filter(Role.name == "Admin").first()
-    db.add(Permission(
-        page_path="/nodn/page", page_type=PageType.MAINTENANCE,
-        role_id=admin_role.id, level=PermissionLevel.FULL, is_system=True,
-    ))
-    db.commit()
 
     service = AppLugService(plugins_dir=plugin_dir)
     service.discover(db)
@@ -426,3 +438,321 @@ def test_non_development_env_enforces_strict_matching(monkeypatch):
     monkeypatch.setattr("matika.core.applug.get_matika_version", lambda: "0.0.3_dev")
     with pytest.raises(RuntimeError, match="0.0.2"):
         _ConcretePlugin({"id": "p", "version": "1.0", "matika_version": "0.0.2"})
+
+# ---------------------------------------------------------------------------
+# Consolidated *_menus.json — full menu matrix
+# ---------------------------------------------------------------------------
+
+def _make_matrix_plugin(plugin_dir, db):
+    """Create a plugin with application + User role + Admin role menus for matrix tests."""
+    p_path = os.path.join(plugin_dir, "matrix_plugin")
+    os.makedirs(p_path)
+
+    manifest = {
+        "id": "matrix_plugin",
+        "version": "1.0",
+        "matika_version": get_matika_version(),
+        "name": "Matrix Plugin",
+        "entry_point": "plugin.MockPlugin",
+    }
+    with open(os.path.join(p_path, "applug.json"), "w") as f:
+        json.dump(manifest, f)
+
+    menus_data = {
+        "schema_version": "1.0",
+        "menus": {
+            "application": {
+                "id": "matrix-app",
+                "label_key": "menu_matrix",
+                "items": [
+                    {"type": "Link", "label_key": "item_matrix_page",
+                     "href": "/matrix/page"}
+                ]
+            },
+            "roles": [
+                {
+                    "role": "User",
+                    "id": "matrix-user",
+                    "label_key": "menu_matrix",
+                    "items": [
+                        {
+                            "type": "Menu",
+                            "label_key": "menu_matrix",
+                            "items": [
+                                {"type": "Link", "label_key": "item_matrix_page",
+                                 "href": "/matrix/page"}
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "role": "Admin",
+                    "id": "matrix-admin",
+                    "label_key": "menu_matrix",
+                    "items": [
+                        {
+                            "type": "Menu",
+                            "label_key": "menu_matrix",
+                            "items": [
+                                {"type": "Link", "label_key": "item_matrix_admin",
+                                 "href": "/matrix/admin"}
+                            ]
+                        }
+                    ]
+                }
+            ]
+        }
+    }
+    with open(os.path.join(p_path, "matrix_plugin_menus.json"), "w") as f:
+        json.dump(menus_data, f)
+
+    with open(os.path.join(p_path, "plugin.py"), "w") as f:
+        f.write(MOCK_PLUGIN_CONTENT)
+
+    service = AppLugService(plugins_dir=plugin_dir)
+    service.discover(db)
+    return service
+
+
+def test_application_hub_visible_to_user_role(plugin_dir, db):
+    """Application hub entry appears for users with User role (no role restriction on app menu)."""
+    service = _make_matrix_plugin(plugin_dir, db)
+    result = service.get_menus_for_context(user_roles=["User"], t={})
+    ids = [e["id"] for e in result["selector"] if e.get("type") == "item"]
+    assert "matrix_plugin" in ids
+    assert "matrix_plugin" in result["hubs"]
+
+
+def test_application_hub_visible_to_admin_role(plugin_dir, db):
+    """Application hub entry appears for users with Admin role."""
+    service = _make_matrix_plugin(plugin_dir, db)
+    result = service.get_menus_for_context(user_roles=["Admin"], t={})
+    ids = [e["id"] for e in result["selector"] if e.get("type") == "item"]
+    assert "matrix_plugin" in ids
+    assert "matrix_plugin" in result["hubs"]
+
+
+def test_user_role_hub_contains_plugin_user_menu(plugin_dir, db):
+    """__role_User__ hub contains the plugin's User role menu items."""
+    service = _make_matrix_plugin(plugin_dir, db)
+    result = service.get_menus_for_context(user_roles=["User"], t={})
+    user_hub = result["hubs"].get("__role_User__", [])
+    all_hrefs = [
+        item.get("href", "")
+        for entry in user_hub
+        for item in (entry.get("items") or [{"href": entry.get("href", "")}])
+    ]
+    assert any("/matrix/page" in h for h in all_hrefs), (
+        f"Expected /matrix/page in User hub. Hub: {user_hub}"
+    )
+
+
+def test_admin_role_hub_contains_core_and_plugin_admin_menus(plugin_dir, db):
+    """__role_Admin__ hub contains both core admin items and plugin Admin role items."""
+    service = _make_matrix_plugin(plugin_dir, db)
+    result = service.get_menus_for_context(user_roles=["Admin"], t={})
+    admin_hub = result["hubs"].get("__role_Admin__", [])
+
+    all_labels = [entry.get("label", "") for entry in admin_hub]
+    # Core admin menu contributes its top-level menu label
+    assert any(lbl in ("menu_admin", "Admin") for lbl in all_labels), (
+        f"Expected core Admin menu label in Admin hub. Labels: {all_labels}"
+    )
+
+    all_hrefs = []
+    for entry in admin_hub:
+        for item in (entry.get("items") or []):
+            all_hrefs.append(item.get("href", ""))
+            for sub in (item.get("items") or []):
+                all_hrefs.append(sub.get("href", ""))
+    assert any("/matrix/admin" in h for h in all_hrefs), (
+        f"Expected /matrix/admin in Admin hub. Hrefs: {all_hrefs}"
+    )
+
+
+def test_user_with_both_roles_sees_both_role_entries_in_selector(plugin_dir, db):
+    """A user with both User and Admin roles sees __role_User__ and __role_Admin__ in selector."""
+    service = _make_matrix_plugin(plugin_dir, db)
+    result = service.get_menus_for_context(user_roles=["User", "Admin"], t={})
+    ids = [e["id"] for e in result["selector"] if e.get("type") == "item"]
+    assert "__role_User__" in ids
+    assert "__role_Admin__" in ids
+
+
+def test_user_only_role_does_not_see_admin_in_selector(plugin_dir, db):
+    """A user with only User role does not see __role_Admin__ in selector."""
+    service = _make_matrix_plugin(plugin_dir, db)
+    result = service.get_menus_for_context(user_roles=["User"], t={})
+    ids = [e["id"] for e in result["selector"] if e.get("type") == "item"]
+    assert "__role_User__" in ids
+    assert "__role_Admin__" not in ids
+
+
+def test_admin_only_role_does_not_see_user_in_selector(plugin_dir, db):
+    """A user with only Admin role does not see __role_User__ in selector."""
+    service = _make_matrix_plugin(plugin_dir, db)
+    result = service.get_menus_for_context(user_roles=["Admin"], t={})
+    ids = [e["id"] for e in result["selector"] if e.get("type") == "item"]
+    assert "__role_Admin__" in ids
+    assert "__role_User__" not in ids
+
+
+def test_permission_file_without_menus_file_logs_warning(plugin_dir, db, monkeypatch):
+    """Startup warning is logged when a plugin has *_permission.json but no *_menus.json."""
+    p_path = os.path.join(plugin_dir, "warn_plugin")
+    os.makedirs(p_path)
+
+    with open(os.path.join(p_path, "warn_plugin_permission.json"), "w") as f:
+        json.dump({"permissions": []}, f)
+
+    from matika.core.menu_loader import MenuLoaderService
+    from matika.core.paths import BASE_DIR
+    import matika.core.menu_loader as _ml_mod
+
+    captured: list = []
+    monkeypatch.setattr(_ml_mod.logger, "warning", lambda msg, *args, **kw: captured.append(msg % args))
+
+    core_menus_dir = os.path.join(BASE_DIR, "src", "matika", "menus")
+    loader = MenuLoaderService(core_menus_dir=core_menus_dir, plugins_dir=plugin_dir)
+    loader.load_applug_menus()
+
+    assert any("warn_plugin" in msg and "no *_menus.json" in msg for msg in captured), (
+        f"Expected warning about missing *_menus.json. Captured: {captured}"
+    )
+
+
+def test_filter_items_removes_role_restricted_items_from_role_hub(plugin_dir, db):
+    """filter_items() removes items whose roles list excludes the current user's role."""
+    p_path = os.path.join(plugin_dir, "filter_plugin")
+    os.makedirs(p_path)
+
+    manifest = {
+        "id": "filter_plugin",
+        "version": "1.0",
+        "matika_version": get_matika_version(),
+        "name": "Filter Plugin",
+        "entry_point": "plugin.MockPlugin",
+    }
+    with open(os.path.join(p_path, "applug.json"), "w") as f:
+        json.dump(manifest, f)
+
+    menus_data = {
+        "schema_version": "1.0",
+        "menus": {
+            "roles": [
+                {
+                    "role": "User",
+                    "id": "filter-user",
+                    "label_key": "menu_filter",
+                    "items": [
+                        {
+                            "type": "Menu",
+                            "label_key": "menu_filter",
+                            "items": [
+                                {"type": "Link", "label_key": "item_allowed",
+                                 "href": "/filter/allowed"},
+                                {"type": "Link", "label_key": "item_admin_only",
+                                 "href": "/filter/admin_only", "roles": ["Admin"]},
+                            ]
+                        }
+                    ]
+                }
+            ]
+        }
+    }
+    with open(os.path.join(p_path, "filter_plugin_menus.json"), "w") as f:
+        json.dump(menus_data, f)
+
+    with open(os.path.join(p_path, "plugin.py"), "w") as f:
+        f.write(MOCK_PLUGIN_CONTENT)
+
+    service = AppLugService(plugins_dir=plugin_dir)
+    service.discover(db)
+
+    result = service.get_menus_for_context(user_roles=["User"], t={})
+    user_hub = result["hubs"].get("__role_User__", [])
+
+    all_hrefs = []
+    for entry in user_hub:
+        for item in (entry.get("items") or []):
+            all_hrefs.append(item.get("href", ""))
+    assert "/filter/allowed" in all_hrefs, f"Allowed link missing from User hub. Hrefs: {all_hrefs}"
+    assert "/filter/admin_only" not in all_hrefs, (
+        f"Admin-only link must not appear in User hub. Hrefs: {all_hrefs}"
+    )
+
+
+def test_load_applug_menus_parses_application_and_roles(plugin_dir):
+    """load_applug_menus() correctly parses application and roles from *_menus.json."""
+    p_path = os.path.join(plugin_dir, "parse_plugin")
+    os.makedirs(p_path)
+
+    menus_data = {
+        "schema_version": "1.0",
+        "menus": {
+            "application": {
+                "id": "parse-app",
+                "label_key": "menu_parse",
+                "items": [{"type": "Link", "label_key": "k", "href": "/parse/page"}]
+            },
+            "roles": [
+                {"role": "Admin", "id": "parse-admin", "label_key": "menu_parse", "items": []}
+            ]
+        }
+    }
+    with open(os.path.join(p_path, "parse_plugin_menus.json"), "w") as f:
+        json.dump(menus_data, f)
+
+    from matika.core.menu_loader import MenuLoaderService
+    from matika.core.paths import BASE_DIR
+    core_menus_dir = os.path.join(BASE_DIR, "src", "matika", "menus")
+    loader = MenuLoaderService(core_menus_dir=core_menus_dir, plugins_dir=plugin_dir)
+    result = loader.load_applug_menus()
+
+    assert "parse_plugin" in result
+    assert result["parse_plugin"]["application"]["id"] == "parse-app"
+    assert "Admin" in result["parse_plugin"]["roles"]
+    assert result["parse_plugin"]["roles"]["Admin"]["id"] == "parse-admin"
+    assert "User" not in result["parse_plugin"]["roles"]
+
+
+def test_load_applug_menus_returns_none_for_missing_application(plugin_dir):
+    """load_applug_menus() returns application=None when the section is absent."""
+    p_path = os.path.join(plugin_dir, "noapp_plugin")
+    os.makedirs(p_path)
+
+    menus_data = {
+        "schema_version": "1.0",
+        "menus": {
+            "roles": [
+                {"role": "Admin", "id": "noapp-admin", "label_key": "k", "items": []}
+            ]
+        }
+    }
+    with open(os.path.join(p_path, "noapp_plugin_menus.json"), "w") as f:
+        json.dump(menus_data, f)
+
+    from matika.core.menu_loader import MenuLoaderService
+    from matika.core.paths import BASE_DIR
+    core_menus_dir = os.path.join(BASE_DIR, "src", "matika", "menus")
+    loader = MenuLoaderService(core_menus_dir=core_menus_dir, plugins_dir=plugin_dir)
+    result = loader.load_applug_menus()
+
+    assert result["noapp_plugin"]["application"] is None
+
+
+def test_invalidate_cache_clears_both_caches(plugin_dir):
+    """invalidate_cache() clears both the legacy and applug menu caches."""
+    from matika.core.menu_loader import MenuLoaderService
+    from matika.core.paths import BASE_DIR
+    core_menus_dir = os.path.join(BASE_DIR, "src", "matika", "menus")
+    loader = MenuLoaderService(core_menus_dir=core_menus_dir, plugins_dir=plugin_dir)
+
+    loader.load_all()
+    loader.load_applug_menus()
+    assert loader._cache is not None
+    assert loader._applug_cache is not None
+
+    loader.invalidate_cache()
+    assert loader._cache is None
+    assert loader._applug_cache is None
