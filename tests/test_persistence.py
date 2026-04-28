@@ -188,19 +188,16 @@ class TestAlembicMigrations:
         assert second.down_revision == "dcdb5f511773"
 
     def test_alembic_current_is_head(self, db):
-        """
-        If the database has an alembic_version table it must be at head.
-        Test databases created via create_all() (no Alembic history) are skipped.
-        """
+        """The test database must have an alembic_version table stamped at head."""
         from alembic.runtime.migration import MigrationContext
         from sqlalchemy import inspect as sa_inspect
 
         conn = db.get_bind()
-        # The test DB is seeded via create_all(), not Alembic, so alembic_version
-        # may not exist. Only assert when it does.
         inspector = sa_inspect(conn)
-        if "alembic_version" not in inspector.get_table_names():
-            pytest.skip("Test database has no alembic_version table (create_all() path)")
+        assert "alembic_version" in inspector.get_table_names(), (
+            "alembic_version table missing — conftest.py must stamp the test DB at head "
+            "after create_all()."
+        )
 
         migration_ctx = MigrationContext.configure(conn)
         current_rev = migration_ctx.get_current_revision()

@@ -29,12 +29,22 @@ python scripts/dev_setup.py
 export SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(64))")
 
 # Or create a persistent .env file (copy .env.example first):
+cp .env.example .env   # then edit .env
 export $(cat .env | xargs)
 ```
 
-### Run the App
+`MATIKA_ENV=development` — set this in your local `.env` to allow AppLugs that declare
+a released `matika_version` (e.g. `0.0.2`) to load when Matika is running at a `_dev`
+version (e.g. `0.0.3_dev`). This relaxes only the version check — no other validation
+changes. Never set this in production. Never commit `.env`.
+
+### Run the Development Server
 ```bash
-SECRET_KEY=<your-key> PYTHONPATH=src uvicorn matika.main:app --host 127.0.0.1 --port 8000 --reload
+# With .env loaded (recommended):
+export $(cat .env | xargs) && PYTHONPATH=src uvicorn matika.main:app --host 127.0.0.1 --port 8000 --reload
+
+# Or inline:
+SECRET_KEY=<your-key> MATIKA_ENV=development PYTHONPATH=src uvicorn matika.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
 ### Build TypeScript

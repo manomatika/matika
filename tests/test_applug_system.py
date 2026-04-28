@@ -377,3 +377,52 @@ def test_validate_compatibility_error_message_is_informative(plugin_dir, db):
 
     with pytest.raises(RuntimeError, match="0.0.0"):
         ConcretePlugin({"id": "test", "version": "1.0", "matika_version": "0.0.0"})  # wrong version
+
+
+# ---------------------------------------------------------------------------
+# MATIKA_ENV=development version check relaxation
+# ---------------------------------------------------------------------------
+
+class _ConcretePlugin(BaseAppLug):
+    def on_load(self, db): pass
+    def on_unload(self, db): pass
+
+
+def test_dev_mode_dev_version_compatible_with_base_released_version(monkeypatch):
+    """MATIKA_ENV=development: 0.0.3_dev is compatible with applug declaring 0.0.2."""
+    monkeypatch.setenv("MATIKA_ENV", "development")
+    monkeypatch.setattr("matika.core.applug.get_matika_version", lambda: "0.0.3_dev")
+    plugin = _ConcretePlugin({"id": "p", "version": "1.0", "matika_version": "0.0.2"})
+    assert plugin.matika_version == "0.0.2"
+
+
+def test_dev_mode_dev_version_compatible_with_same_base_version(monkeypatch):
+    """MATIKA_ENV=development: 0.0.3_dev is compatible with applug declaring 0.0.3."""
+    monkeypatch.setenv("MATIKA_ENV", "development")
+    monkeypatch.setattr("matika.core.applug.get_matika_version", lambda: "0.0.3_dev")
+    plugin = _ConcretePlugin({"id": "p", "version": "1.0", "matika_version": "0.0.3"})
+    assert plugin.matika_version == "0.0.3"
+
+
+def test_strict_mode_dev_version_vs_released_refused(monkeypatch):
+    """MATIKA_ENV not set: 0.0.3_dev vs 0.0.2 raises RuntimeError."""
+    monkeypatch.delenv("MATIKA_ENV", raising=False)
+    monkeypatch.setattr("matika.core.applug.get_matika_version", lambda: "0.0.3_dev")
+    with pytest.raises(RuntimeError, match="0.0.2"):
+        _ConcretePlugin({"id": "p", "version": "1.0", "matika_version": "0.0.2"})
+
+
+def test_strict_mode_matching_released_version_passes(monkeypatch):
+    """MATIKA_ENV not set: exact match 0.0.2 == 0.0.2 loads without error."""
+    monkeypatch.delenv("MATIKA_ENV", raising=False)
+    monkeypatch.setattr("matika.core.applug.get_matika_version", lambda: "0.0.2")
+    plugin = _ConcretePlugin({"id": "p", "version": "1.0", "matika_version": "0.0.2"})
+    assert plugin.matika_version == "0.0.2"
+
+
+def test_non_development_env_enforces_strict_matching(monkeypatch):
+    """MATIKA_ENV=production: strict matching enforced even with _dev running version."""
+    monkeypatch.setenv("MATIKA_ENV", "production")
+    monkeypatch.setattr("matika.core.applug.get_matika_version", lambda: "0.0.3_dev")
+    with pytest.raises(RuntimeError, match="0.0.2"):
+        _ConcretePlugin({"id": "p", "version": "1.0", "matika_version": "0.0.2"})

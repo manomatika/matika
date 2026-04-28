@@ -57,18 +57,27 @@ def setup_database(setup_plugins):
     # Ensure we are using the test database
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
-    
+
+    # Stamp the Alembic version table so test_alembic_current_is_head can assert
+    # without skipping. The schema was created via create_all() (equivalent to head),
+    # so stamping head is always correct here.
+    from alembic.config import Config
+    from alembic import command as alembic_command
+    alembic_ini = os.path.join(os.path.dirname(__file__), "..", "alembic.ini")
+    alembic_cfg = Config(alembic_ini)
+    alembic_command.stamp(alembic_cfg, "head")
+
     # Initialize session for seeding
     db = TestingSessionLocal()
-    
+
     # Seed default roles, permissions, and settings for tests
     from matika.database import init_db
     init_db(db)
-        
+
     db.close()
-    
+
     yield
-    
+
     # Cleanup after all tests
     Base.metadata.drop_all(bind=engine)
     if os.path.exists("./data/test_matika.db"):
