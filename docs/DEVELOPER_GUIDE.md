@@ -217,4 +217,4 @@ WARNING: AppLug '<id>' declares permissions but provides no *_menus.json.
 Its pages will be unreachable from any menu. This is likely a development oversight.
 ```
 
-See `doc/ARCHITECTURE.md` for the full AppLug contract and `doc/INSTALL.md` for installation steps.
+See `docs/ARCHITECTURE.md` for the full AppLug contract and `docs/INSTALL.md` for installation steps.

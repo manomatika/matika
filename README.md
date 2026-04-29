@@ -26,7 +26,7 @@ Matika is a high-performance, plugin-agnostic framework built with **FastAPI** a
 [SQLite (dev) | PostgreSQL/MySQL (production)]
 ```
 
-See [Architecture Overview](doc/ARCHITECTURE.md) for the full technical design.
+See [Architecture Overview](docs/ARCHITECTURE.md) for the full technical design.
 
 ## Quick Start
 
@@ -64,9 +64,9 @@ See [EyeRate](https://github.com/pjtallman/eyerate) for the reference implementa
 
 | Document | Description |
 |---|---|
-| [INSTALL.md](doc/INSTALL.md) | Step-by-step installation for developers and end users |
-| [DEPLOYMENT.md](doc/DEPLOYMENT.md) | Production deployment, PostgreSQL setup, migrations, zero-downtime |
-| [ARCHITECTURE.md](doc/ARCHITECTURE.md) | Full technical architecture, persistence layer, security model |
+| [INSTALL.md](docs/INSTALL.md) | Step-by-step installation for developers and end users |
+| [DEPLOYMENT.md](docs/DEPLOYMENT.md) | Production deployment, PostgreSQL setup, migrations, zero-downtime |
+| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Full technical architecture, persistence layer, security model |
 
 ## License
 Copyright (c) 2026 Patrick James Tallman. All Rights Reserved.

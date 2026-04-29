@@ -25,8 +25,8 @@ def sync_version():
             f.write(new_content)
         print("Updated pyproject.toml")
 
-    # 2. Update doc/DEPLOYMENT.md
-    deployment_md = "doc/DEPLOYMENT.md"
+    # 2. Update docs/DEPLOYMENT.md
+    deployment_md = "docs/DEPLOYMENT.md"
     if os.path.exists(deployment_md):
         with open(deployment_md, "r") as f:
             content = f.read()

@@ -1,4 +1,4 @@
-**Matika** | Version: **v0.0.2** | Copyright (c) 2026 Patrick James Tallman
+**Matika** | Version: **v0.0.3** | Copyright (c) 2026 Patrick James Tallman
 
 # CLAUDE.md
 
@@ -21,7 +21,7 @@ cp plugins.dev.json.example plugins.dev.json
 # Edit plugins.dev.json, then run:
 python scripts/dev_setup.py
 ```
-`dev_setup.py` is idempotent — safe to run multiple times. It validates each path contains both `applug.json` and at least one `*_menu.json` before creating symlinks. `plugins.dev.json` is in `.gitignore` and is never committed.
+`dev_setup.py` is idempotent — safe to run multiple times. It validates each path contains both `applug.json` and at least one `*_menus.json` before creating symlinks. `plugins.dev.json` is in `.gitignore` and is never committed.
 
 ### Required Environment Variables
 ```bash
@@ -87,7 +87,7 @@ Matika is a **plugin-agnostic FastAPI framework** — the core has zero knowledg
 | Layer | Path | Role |
 |---|---|---|
 | Plugin engine | `src/matika/core/applug_service.py` | Discovers, loads, and registers AppLugs; builds role menu cache at startup |
-| Menu loader | `src/matika/core/menu_loader.py` | `MenuLoaderService` — discovers and parses all `*_menu.json` files |
+| Menu loader | `src/matika/core/menu_loader.py` | `MenuLoaderService` — discovers and parses all `*_menus.json` files |
 | Auth | `src/matika/auth/` | bcrypt, JWT, OAuth; `dependencies.py` provides `login_required`, `validate_csrf` |
 | Database | `src/matika/database.py`, `models.py` | SQLAlchemy ORM; SQLite (dev) or PostgreSQL/MySQL (prod) |
 | Migrations | `migrations/` | Alembic versioned migrations for core schema only |
@@ -111,7 +111,7 @@ plugins.dev.json           ← per-developer config, gitignored
 scripts/dev_setup.py       ← validates + creates symlinks
 plugins/eyerate → /path/to/eyerate   ← result
 ```
-`dev_setup.py` validates each entry has `applug.json` AND at least one `*_menu.json` before symlinking. It is idempotent and handles broken/wrong-target symlinks interactively.
+`dev_setup.py` validates each entry has `applug.json` AND at least one `*_menus.json` before symlinking. It is idempotent and handles broken/wrong-target symlinks interactively.
 
 #### 2. Server deployment (git clone or `MATIKA_PLUGINS_DIR`)
 ```bash
@@ -130,7 +130,11 @@ Standalone `.dmg`/`.exe` built with PyInstaller. Bundles the framework + selecte
 #### AppLug contract
 Every plugin directory must contain:
 - `applug.json` — manifest: `id`, `version`, `name`, `matika_version` (required — exact Matika version this AppLug was built and tested against), optional `display_name`, `entry_point`, `permissions`
-- `<id>_menu.json` — at least one menu metadata file (schema v1.0)
+- `<id>_menus.json` — consolidated menu file (schema v1.0) with two optional top-level sections:
+  - `application` (optional) — an Application-type menu rendered as a dropdown in the plugin's hub
+  - `roles` (optional) — array of role menus; each entry has `role`, `id`, `label_key`, and `items`
+    - Admin role items: flat `Link` entries (no `Menu` wrapper)
+    - Other role items: `Menu` wrapper containing nested links (dropdown behavior)
 - Python class extending `BaseAppLug` with `on_load(db)` and `on_unload(db)`
 
 `matika_version` (required) is checked at startup by `BaseAppLug._validate_compatibility()`. If absent or mismatched the AppLug is refused and skipped — a clear `RuntimeError` is logged. This is the compatibility contract baseline introduced in Matika 0.0.2; no breaking changes to `BaseAppLug` or the plugin discovery contract from this version forward.
@@ -152,9 +156,9 @@ Menu data flows through two distinct phases:
 | Source | Path | Key |
 |---|---|---|
 | Core menus | `src/matika/menus/` | `"core"` |
-| Plugin menus | `plugins/<id>/<id>_menu.json` | `"<plugin_id>"` |
+| Plugin menus | `plugins/<id>/<id>_menus.json` | `"<plugin_id>"` |
 
-Only files matching `*_menu.json` are loaded. The service caches results after the first call (`load_all()` is lazy-cached; call `invalidate_cache()` to reset). Schema version `"1.0"` is enforced — files with other versions are skipped with a warning.
+Plugin menus are loaded via `load_applug_menus()`, which reads `*_menus.json` files (consolidated format). Core menus continue to use individual `*_menu.json` files. The service caches results after the first call (`load_all()` is lazy-cached; call `invalidate_cache()` to reset). Schema version `"1.0"` is enforced — files with other versions are skipped with a warning.
 
 #### Phase 2 — Context building (`AppLugService.get_menus_for_context`)
 
@@ -169,32 +173,54 @@ Selector ordering is fixed: `Default → (sep) → Favorites → (sep) → [Appl
 
 Hub ordering within each entry: plugin menus first → core non-System menus → core System (Help) menus last.
 
-**Role hubs** are built once at startup (`_build_role_menus(db)`) from the permissions database — not from static files. Every page where a role has `permission != NONE` becomes a link in that role's hub. This means role menus update automatically when permissions change (after server restart).
+**Role hubs** are built from the `roles` sections of `*_menus.json` files plus core Role-type menus (e.g. `admin_menu.json`). `_build_role_menus` is removed — role menus are static file-driven, not generated from the permissions database.
 
-#### `*_menu.json` schema v1.0
+**Admin dropdown** aggregates System menus and AppLug-contributed items. When two or more sources contribute items, `SectionHeader` items are injected to separate them. A single source never shows section headers.
+
+**`fresh_login` session flag** is set on login and cleared after the first page load. While set, the Default hub is always shown regardless of the user's saved preference — ensuring a consistent landing state after login.
+
+#### `*_menus.json` schema v1.0 (plugin consolidated format)
 
 ```json
 {
   "schema_version": "1.0",
-  "menus": [
+  "application": {
+    "id": "unique-id",
+    "label_key": "i18n_key",
+    "items": [
+      { "type": "Link",      "label_key": "k", "href": "/path", "open_new_tab": false },
+      { "type": "Menu",      "label_key": "k", "items": [ ... ] },
+      { "type": "Separator" }
+    ]
+  },
+  "roles": [
     {
-      "id": "unique-id",
+      "role": "Admin",
+      "id": "unique-role-id",
       "label_key": "i18n_key",
-      "type": "Application | Role | System | Favorites",
-      "roles": ["Admin"],        // optional — gates entire menu
       "items": [
-        { "type": "Link",      "label_key": "k", "href": "/path", "roles": ["Admin"], "open_new_tab": false },
-        { "type": "Menu",      "label_key": "k", "items": [ ... ] },
-        { "type": "Separator" }
+        { "type": "Link", "label_key": "k", "href": "/path" }
+      ]
+    },
+    {
+      "role": "User",
+      "id": "unique-role-id",
+      "label_key": "i18n_key",
+      "items": [
+        { "type": "Menu", "label_key": "section", "items": [
+          { "type": "Link", "label_key": "k", "href": "/path" }
+        ]}
       ]
     }
   ]
 }
 ```
 
-`MenuType.DEFAULT` is a **selector entry type**, not a menu type. No `*_menu.json` file ever has `type: "Default"`. Default is an aggregated view assembled at runtime.
+Both `application` and `roles` are optional — a plugin may provide one, both, or neither.
 
-Core menus: `admin_menu.json` (type `Role`) and `help_menu.json` (type `System`). System-type menus always render last in every hub.
+`MenuType.DEFAULT` is a **selector entry type**, not a menu type. Default is an aggregated view assembled at runtime.
+
+Core menus (`src/matika/menus/`) continue to use individual `*_menu.json` files with the `menus` array format. Core menus: `admin_menu.json` (type `Role`) and `help_menu.json` (type `System`). System-type menus always render last in every hub.
 
 #### `menus_data` JSON injected into every page
 
@@ -220,7 +246,7 @@ TypeScript reads these on `DOMContentLoaded`. Hub selection is persisted in `ses
 | Server deployment | Technical operators | `MATIKA_PLUGINS_DIR` or `plugins/` clones | Server `.env` / secrets manager |
 | End-user installer | Non-technical users | Bundled by vendor at build time | First-login password change |
 
-See `doc/DEPLOYMENT.md` for the full operator guide and `doc/INSTALL.md` for end-user and developer installation steps.
+See `docs/DEPLOYMENT.md` for the full operator guide and `docs/INSTALL.md` for end-user and developer installation steps.
 
 ---
 
@@ -265,8 +291,12 @@ See `doc/DEPLOYMENT.md` for the full operator guide and `doc/INSTALL.md` for end
 
 ### Standing Rules
 - Always add unit tests for new functionality; update existing tests for changed behaviour.
-- All tests must be green before declaring work done or moving to the next phase.
+- All tests must pass with 0 skipped and 0 failed — no exceptions.
 - Never hardcode `SECRET_KEY` — read from environment only.
 - Never modify the production DB during testing.
 - Flag best-practice violations before implementing; never silently comply.
 - EyeRate-specific dependencies (`yfinance`, `curl_cffi`) belong in `eyerate/requirements.txt`, not in Matika's `requirements.txt`.
+- Never run `git merge` — rebase or cherry-pick only.
+- Never run `rm -rf` on any directory.
+- Developer handles git staging and commits manually; do not stage or commit unless explicitly granted full git permissions for the session.
+- `MATIKA_ENV=development` must never be committed — it belongs only in the local `.env`.

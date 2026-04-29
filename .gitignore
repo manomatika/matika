@@ -23,3 +23,5 @@ plugins/eyerate
 plugins.dev.json
 # Entire plugins/ symlink/clone tree — contents are injected at setup time
 plugins/
+# Browser cookie exports — never commit
+cookies.txt
