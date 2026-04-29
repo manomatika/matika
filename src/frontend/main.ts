@@ -13,7 +13,7 @@ type SelectorEntry =
   | { type: "header"; label: string };
 
 interface MenuItem {
-  type: "Link" | "Menu" | "Separator";
+  type: "Link" | "Menu" | "Separator" | "SectionHeader";
   label?: string;
   href?: string;
   open_new_tab?: boolean;
@@ -237,6 +237,13 @@ function buildDropdownEntry(item: MenuItem): HTMLElement {
   if (item.type === "Separator") {
     const el = document.createElement("div");
     el.className = "hub-dd-separator";
+    return el;
+  }
+
+  if (item.type === "SectionHeader") {
+    const el = document.createElement("div");
+    el.className = "hub-dd-section-header";
+    el.textContent = item.label ?? "";
     return el;
   }
 

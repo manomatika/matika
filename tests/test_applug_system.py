@@ -201,7 +201,7 @@ def test_plugin_on_unload(plugin_dir, mock_plugin, db):
 
 
 def test_role_hub_ordering(plugin_dir, mock_plugin, db):
-    """Role hub items: plugin menus first, core non-help second, Help last."""
+    """Admin role hub: aggregated Admin dropdown first, Help last."""
     service = AppLugService(plugins_dir=plugin_dir)
     service.discover(db)
 
@@ -756,3 +756,381 @@ def test_invalidate_cache_clears_both_caches(plugin_dir):
     loader.invalidate_cache()
     assert loader._cache is None
     assert loader._applug_cache is None
+
+
+# ---------------------------------------------------------------------------
+# Helpers for Admin dropdown aggregation tests
+# ---------------------------------------------------------------------------
+
+def _make_admin_plugin(plugin_dir, plugin_id, display_name, admin_items):
+    """
+    Create a minimal plugin with an application section and flat Admin role
+    items (no Menu wrapper — items insert directly into the aggregated Admin
+    dropdown).
+    """
+    p_path = os.path.join(plugin_dir, plugin_id)
+    os.makedirs(p_path)
+
+    manifest = {
+        "id": plugin_id,
+        "version": "1.0",
+        "matika_version": get_matika_version(),
+        "name": display_name,
+        "display_name": display_name,
+        "entry_point": "plugin.MockPlugin",
+    }
+    with open(os.path.join(p_path, "applug.json"), "w") as f:
+        json.dump(manifest, f)
+
+    menus_data = {
+        "schema_version": "1.0",
+        "menus": {
+            "application": {
+                "id": f"{plugin_id}-app",
+                "label_key": f"menu_{plugin_id}",
+                "items": [
+                    {"type": "Link", "label_key": f"item_{plugin_id}_page",
+                     "href": f"/{plugin_id}/page"}
+                ],
+            },
+            "roles": [
+                {
+                    "role": "Admin",
+                    "id": f"{plugin_id}-admin",
+                    "label_key": f"menu_{plugin_id}",
+                    "items": admin_items,
+                }
+            ],
+        },
+    }
+    with open(os.path.join(p_path, f"{plugin_id}_menus.json"), "w") as f:
+        json.dump(menus_data, f)
+
+    with open(os.path.join(p_path, "plugin.py"), "w") as f:
+        f.write(MOCK_PLUGIN_CONTENT)
+
+    return p_path
+
+
+def _admin_dropdown_from_hub(hub):
+    """Return the Admin Menu entry from a hub list, or None."""
+    return next(
+        (m for m in hub if m.get("type") == "Menu" and m.get("label") == "Admin"),
+        None,
+    )
+
+
+def _section_header_labels(dropdown):
+    """Return labels of all SectionHeader items inside a dropdown's items list."""
+    return [i["label"] for i in dropdown["items"] if i.get("type") == "SectionHeader"]
+
+
+def _all_hrefs_in_dropdown(dropdown):
+    """Collect hrefs from all direct and one-level-deep items in a dropdown."""
+    hrefs = []
+    for item in dropdown.get("items", []):
+        if item.get("href"):
+            hrefs.append(item["href"])
+        for sub in item.get("items", []):
+            if sub.get("href"):
+                hrefs.append(sub["href"])
+    return hrefs
+
+
+# ---------------------------------------------------------------------------
+# Admin dropdown aggregation — section header rules
+# ---------------------------------------------------------------------------
+
+def test_admin_dropdown_single_source_no_section_headers(plugin_dir, db):
+    """Single source (System only, no plugin admin items) → no SectionHeaders."""
+    # Plugin with application menu only — no roles section.
+    p_path = os.path.join(plugin_dir, "norl_plugin")
+    os.makedirs(p_path)
+    manifest = {
+        "id": "norl_plugin", "version": "1.0",
+        "matika_version": get_matika_version(),
+        "name": "NoRl Plugin", "entry_point": "plugin.MockPlugin",
+    }
+    with open(os.path.join(p_path, "applug.json"), "w") as f:
+        json.dump(manifest, f)
+    menus_data = {
+        "schema_version": "1.0",
+        "menus": {
+            "application": {
+                "id": "norl-app", "label_key": "menu_norl",
+                "items": [{"type": "Link", "label_key": "item_norl", "href": "/norl/page"}],
+            }
+        },
+    }
+    with open(os.path.join(p_path, "norl_plugin_menus.json"), "w") as f:
+        json.dump(menus_data, f)
+    with open(os.path.join(p_path, "plugin.py"), "w") as f:
+        f.write(MOCK_PLUGIN_CONTENT)
+
+    service = AppLugService(plugins_dir=plugin_dir)
+    service.discover(db)
+    result = service.get_menus_for_context(user_roles=["Admin"], t={})
+
+    admin_dd = _admin_dropdown_from_hub(result["hubs"]["__default__"])
+    assert admin_dd is not None, "Admin dropdown must be present for Admin user"
+    assert _section_header_labels(admin_dd) == [], (
+        f"Single-source Admin dropdown must not have SectionHeaders. "
+        f"Items: {admin_dd['items']}"
+    )
+
+
+def test_admin_dropdown_two_sources_has_section_headers(plugin_dir, db):
+    """Two sources (System + one plugin) → both SectionHeaders present."""
+    _make_admin_plugin(
+        plugin_dir, "alpha_plugin", "Alpha",
+        [{"type": "Link", "label_key": "item_alpha_admin", "href": "/alpha/admin"}],
+    )
+    service = AppLugService(plugins_dir=plugin_dir)
+    service.discover(db)
+    result = service.get_menus_for_context(user_roles=["Admin"], t={})
+
+    admin_dd = _admin_dropdown_from_hub(result["hubs"]["__default__"])
+    assert admin_dd is not None
+    headers = _section_header_labels(admin_dd)
+    assert "System" in headers, f"System header expected. Got: {headers}"
+    assert "Alpha" in headers, f"Alpha header expected. Got: {headers}"
+
+
+def test_admin_dropdown_three_sources_has_section_headers(plugin_dir, db):
+    """Three sources (System + two plugins) → all three SectionHeaders present."""
+    _make_admin_plugin(
+        plugin_dir, "beta_plugin", "Beta",
+        [{"type": "Link", "label_key": "item_beta_admin", "href": "/beta/admin"}],
+    )
+    _make_admin_plugin(
+        plugin_dir, "gamma_plugin", "Gamma",
+        [{"type": "Link", "label_key": "item_gamma_admin", "href": "/gamma/admin"}],
+    )
+    service = AppLugService(plugins_dir=plugin_dir)
+    service.discover(db)
+    result = service.get_menus_for_context(user_roles=["Admin"], t={})
+
+    admin_dd = _admin_dropdown_from_hub(result["hubs"]["__role_Admin__"])
+    assert admin_dd is not None
+    headers = _section_header_labels(admin_dd)
+    assert "System" in headers, f"System header missing. Got: {headers}"
+    assert "Beta" in headers, f"Beta header missing. Got: {headers}"
+    assert "Gamma" in headers, f"Gamma header missing. Got: {headers}"
+    assert len(headers) == 3, f"Expected exactly 3 headers. Got: {headers}"
+
+
+def test_admin_dropdown_header_order_system_first(plugin_dir, db):
+    """System SectionHeader is always the first header in the dropdown."""
+    _make_admin_plugin(
+        plugin_dir, "delta_plugin", "Delta",
+        [{"type": "Link", "label_key": "item_delta_admin", "href": "/delta/admin"}],
+    )
+    service = AppLugService(plugins_dir=plugin_dir)
+    service.discover(db)
+    result = service.get_menus_for_context(user_roles=["Admin"], t={})
+
+    admin_dd = _admin_dropdown_from_hub(result["hubs"]["__default__"])
+    assert admin_dd is not None
+    headers = _section_header_labels(admin_dd)
+    assert len(headers) >= 2
+    assert headers[0] == "System", (
+        f"System must be the first SectionHeader. Got order: {headers}"
+    )
+
+
+def test_user_role_hub_has_no_section_headers(plugin_dir, db):
+    """User role hub dropdowns never contain SectionHeader items."""
+    p_path = os.path.join(plugin_dir, "epsilon_plugin")
+    os.makedirs(p_path)
+    manifest = {
+        "id": "epsilon_plugin", "version": "1.0",
+        "matika_version": get_matika_version(),
+        "name": "Epsilon", "display_name": "Epsilon",
+        "entry_point": "plugin.MockPlugin",
+    }
+    with open(os.path.join(p_path, "applug.json"), "w") as f:
+        json.dump(manifest, f)
+    menus_data = {
+        "schema_version": "1.0",
+        "menus": {
+            "application": {
+                "id": "epsilon-app", "label_key": "menu_epsilon",
+                "items": [{"type": "Link", "label_key": "item_epsilon", "href": "/epsilon/page"}],
+            },
+            "roles": [
+                {
+                    "role": "Admin",
+                    "id": "epsilon-admin",
+                    "label_key": "menu_epsilon",
+                    "items": [
+                        {"type": "Link", "label_key": "item_epsilon_admin", "href": "/epsilon/admin"}
+                    ],
+                },
+                {
+                    "role": "User",
+                    "id": "epsilon-user",
+                    "label_key": "menu_epsilon",
+                    "items": [
+                        {
+                            "type": "Menu",
+                            "label_key": "menu_epsilon",
+                            "items": [
+                                {"type": "Link", "label_key": "item_epsilon", "href": "/epsilon/page"}
+                            ],
+                        }
+                    ],
+                },
+            ],
+        },
+    }
+    with open(os.path.join(p_path, "epsilon_plugin_menus.json"), "w") as f:
+        json.dump(menus_data, f)
+    with open(os.path.join(p_path, "plugin.py"), "w") as f:
+        f.write(MOCK_PLUGIN_CONTENT)
+
+    service = AppLugService(plugins_dir=plugin_dir)
+    service.discover(db)
+    result = service.get_menus_for_context(user_roles=["User"], t={})
+    user_hub = result["hubs"]["__role_User__"]
+
+    all_items = []
+    for entry in user_hub:
+        all_items.extend(entry.get("items", []))
+
+    section_headers = [i for i in all_items if i.get("type") == "SectionHeader"]
+    assert section_headers == [], (
+        f"User role hub must not contain SectionHeaders. Found: {section_headers}"
+    )
+
+
+def test_filter_items_respected_in_aggregated_admin_dropdown(plugin_dir, db):
+    """Role-restricted items inside plugin admin section are filtered before aggregation."""
+    p_path = os.path.join(plugin_dir, "zeta_plugin")
+    os.makedirs(p_path)
+    manifest = {
+        "id": "zeta_plugin", "version": "1.0",
+        "matika_version": get_matika_version(),
+        "name": "Zeta", "display_name": "Zeta",
+        "entry_point": "plugin.MockPlugin",
+    }
+    with open(os.path.join(p_path, "applug.json"), "w") as f:
+        json.dump(manifest, f)
+    menus_data = {
+        "schema_version": "1.0",
+        "menus": {
+            "application": {
+                "id": "zeta-app", "label_key": "menu_zeta",
+                "items": [{"type": "Link", "label_key": "item_zeta", "href": "/zeta/page"}],
+            },
+            "roles": [
+                {
+                    "role": "Admin",
+                    "id": "zeta-admin",
+                    "label_key": "menu_zeta",
+                    "items": [
+                        {"type": "Link", "label_key": "item_zeta_all", "href": "/zeta/admin"},
+                        {
+                            "type": "Link",
+                            "label_key": "item_zeta_super",
+                            "href": "/zeta/super",
+                            "roles": ["SuperAdmin"],
+                        },
+                    ],
+                }
+            ],
+        },
+    }
+    with open(os.path.join(p_path, "zeta_plugin_menus.json"), "w") as f:
+        json.dump(menus_data, f)
+    with open(os.path.join(p_path, "plugin.py"), "w") as f:
+        f.write(MOCK_PLUGIN_CONTENT)
+
+    service = AppLugService(plugins_dir=plugin_dir)
+    service.discover(db)
+    result = service.get_menus_for_context(user_roles=["Admin"], t={})
+
+    admin_dd = _admin_dropdown_from_hub(result["hubs"]["__default__"])
+    assert admin_dd is not None
+    hrefs = _all_hrefs_in_dropdown(admin_dd)
+    assert "/zeta/admin" in hrefs, f"Unrestricted link must be present. Hrefs: {hrefs}"
+    assert "/zeta/super" not in hrefs, (
+        f"SuperAdmin-only link must be filtered out. Hrefs: {hrefs}"
+    )
+
+
+def test_default_hub_admin_dropdown_aggregates_all_sources(plugin_dir, db):
+    """Default hub Admin dropdown contains System items and all plugin admin items."""
+    _make_admin_plugin(
+        plugin_dir, "eta_plugin", "Eta",
+        [{"type": "Link", "label_key": "item_eta_admin", "href": "/eta/admin"}],
+    )
+    service = AppLugService(plugins_dir=plugin_dir)
+    service.discover(db)
+    result = service.get_menus_for_context(user_roles=["Admin"], t={})
+
+    admin_dd = _admin_dropdown_from_hub(result["hubs"]["__default__"])
+    assert admin_dd is not None
+    hrefs = _all_hrefs_in_dropdown(admin_dd)
+    assert "/admin/roles" in hrefs, f"System link must be present. Hrefs: {hrefs}"
+    assert "/eta/admin" in hrefs, f"Plugin admin link must be present. Hrefs: {hrefs}"
+
+
+def test_admin_role_hub_admin_dropdown_aggregates_all_sources(plugin_dir, db):
+    """Admin role hub Admin dropdown aggregates System + all plugin admin items."""
+    _make_admin_plugin(
+        plugin_dir, "theta_plugin", "Theta",
+        [{"type": "Link", "label_key": "item_theta_admin", "href": "/theta/admin"}],
+    )
+    service = AppLugService(plugins_dir=plugin_dir)
+    service.discover(db)
+    result = service.get_menus_for_context(user_roles=["Admin"], t={})
+
+    admin_hub = result["hubs"]["__role_Admin__"]
+    admin_dd = _admin_dropdown_from_hub(admin_hub)
+    assert admin_dd is not None, f"Admin dropdown must be in Admin role hub. Hub: {admin_hub}"
+
+    hrefs = _all_hrefs_in_dropdown(admin_dd)
+    assert "/admin/roles" in hrefs, f"System link must be in Admin role hub. Hrefs: {hrefs}"
+    assert "/theta/admin" in hrefs, f"Plugin link must be in Admin role hub. Hrefs: {hrefs}"
+
+
+def test_plugin_app_hub_admin_dropdown_single_source_no_headers(plugin_dir, db):
+    """Per-plugin app hub Admin dropdown: only plugin items, no System, no SectionHeaders."""
+    _make_admin_plugin(
+        plugin_dir, "iota_plugin", "Iota",
+        [{"type": "Link", "label_key": "item_iota_admin", "href": "/iota/admin"}],
+    )
+    service = AppLugService(plugins_dir=plugin_dir)
+    service.discover(db)
+    result = service.get_menus_for_context(user_roles=["Admin"], t={})
+
+    iota_hub = result["hubs"].get("iota_plugin", [])
+    assert iota_hub, "iota_plugin hub must exist"
+
+    admin_dd = _admin_dropdown_from_hub(iota_hub)
+    assert admin_dd is not None, f"Admin dropdown must be in plugin hub. Hub: {iota_hub}"
+
+    hrefs = _all_hrefs_in_dropdown(admin_dd)
+    assert "/iota/admin" in hrefs, f"Plugin link must be present. Hrefs: {hrefs}"
+    assert "/admin/roles" not in hrefs, (
+        f"System link must NOT appear in plugin-only Admin dropdown. Hrefs: {hrefs}"
+    )
+    assert _section_header_labels(admin_dd) == [], (
+        f"Single-source plugin hub Admin dropdown must not have SectionHeaders."
+    )
+
+
+def test_admin_dropdown_absent_for_non_admin_user(plugin_dir, db):
+    """Non-admin users never see an Admin dropdown in the default hub."""
+    _make_admin_plugin(
+        plugin_dir, "kappa_plugin", "Kappa",
+        [{"type": "Link", "label_key": "item_kappa_admin", "href": "/kappa/admin"}],
+    )
+    service = AppLugService(plugins_dir=plugin_dir)
+    service.discover(db)
+    result = service.get_menus_for_context(user_roles=["User"], t={})
+
+    admin_dd = _admin_dropdown_from_hub(result["hubs"]["__default__"])
+    assert admin_dd is None, (
+        f"Non-admin user must not receive an Admin dropdown. Hub: {result['hubs']['__default__']}"
+    )
