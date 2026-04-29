@@ -3,7 +3,6 @@ import subprocess
 import sys
 import os
 import json
-import glob
 
 def run(cmd, check=True, capture=True):
     """Executes a shell command and returns output or handles errors."""
@@ -48,31 +47,28 @@ def update_version_file(version):
 def update_markdown_headers(version):
     """Updates the header of all markdown files in the project."""
     header = f"**Matika** | Version: **{version}** | Copyright (c) 2026 Patrick James Tallman\n\n"
-    md_files = glob.glob("**/*.md", recursive=True)
-    
-    for md_path in md_files:
-        if ".gemini" in md_path or "node_modules" in md_path or ".venv" in md_path or "plugins" in md_path:
-            continue
-            
-        with open(md_path, "r") as f:
-            content = f.read()
-            
-        # Check if header already exists (starts with **Matika**)
-        if content.startswith("**Matika**"):
-            # Replace existing header line
-            lines = content.splitlines(keepends=True)
-            if lines:
-                lines[0] = header
-                new_content = "".join(lines)
+    skip_dirs = {".gemini", "node_modules", ".venv", "plugins", "__pycache__"}
+
+    for dirpath, dirnames, filenames in os.walk(".", followlinks=False):
+        dirnames[:] = [d for d in dirnames if d not in skip_dirs and not d.startswith(".")]
+        for filename in filenames:
+            if not filename.endswith(".md"):
+                continue
+            md_path = os.path.join(dirpath, filename)
+            with open(md_path, "r") as f:
+                content = f.read()
+            if content.startswith("**Matika**"):
+                lines = content.splitlines(keepends=True)
+                if lines:
+                    lines[0] = header
+                    new_content = "".join(lines)
+                else:
+                    new_content = header
             else:
-                new_content = header
-        else:
-            # Prepend header
-            new_content = header + content
-            
-        with open(md_path, "w") as f:
-            f.write(new_content)
-        print(f"[INFO] Updated header in {md_path}")
+                new_content = header + content
+            with open(md_path, "w") as f:
+                f.write(new_content)
+            print(f"[INFO] Updated header in {md_path}")
 
 def main():
     parser = argparse.ArgumentParser(description="Matika Release Automation (Architect Version)")

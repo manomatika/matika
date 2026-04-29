@@ -6,7 +6,7 @@ from typing import Dict, List, Any, Optional
 from sqlalchemy.orm import Session
 from .paths import ROOT_DIR, BASE_DIR
 from .applug import BaseAppLug
-from .menu_loader import MenuLoaderService, menu_is_visible, filter_items, translate_items, clean_separators
+from .menu_loader import MenuLoaderService, menu_is_visible, filter_items, translate_items
 from ..models import Role, Permission
 from .constants import PageType, PermissionLevel
 
@@ -38,7 +38,6 @@ class AppLugService:
         self.templates = templates
         self.app = app
         self.loaded_plugins: Dict[str, BaseAppLug] = {}
-        self._role_menu_cache: Dict[str, List[Dict]] = {}
 
         os.makedirs(self.plugins_dir, exist_ok=True)
 
@@ -135,7 +134,6 @@ class AppLugService:
                 import traceback
                 logger.error(traceback.format_exc())
 
-        self._build_role_menus(db)
         return list(self.loaded_plugins.values())
 
     def _register_plugin_entities(self, plugin: BaseAppLug, db: Session):
@@ -180,77 +178,6 @@ class AppLugService:
         db.commit()
 
     # ------------------------------------------------------------------
-    # Role menu cache — built once at startup from the permissions DB
-    # ------------------------------------------------------------------
-
-    def _build_role_menus(self, db: Session) -> None:
-        """
-        Queries every system role and builds menu structures from pages where
-        that role has permission level != NONE.  Results are stored in
-        _role_menu_cache keyed by role name and used by get_menus_for_context.
-        """
-        raw = self.menu_loader.load_all()
-        self._role_menu_cache = {}
-
-        for role in db.query(Role).all():
-            accessible = {
-                p.page_path
-                for p in db.query(Permission).filter(
-                    Permission.role_id == role.id,
-                    Permission.level != PermissionLevel.NONE,
-                ).all()
-            }
-            if not accessible:
-                continue
-
-            # Ordered buckets: plugins → core non-help → core help (always last)
-            plugin_entries: List[Dict] = []
-            core_entries: List[Dict] = []
-            help_entries: List[Dict] = []
-
-            for source, source_menus in raw.items():
-                for menu in source_menus:
-                    kept = self._filter_by_paths(menu.get("items", []), accessible)
-                    if not kept:
-                        continue
-                    entry = {
-                        "id": f"role-{role.name.lower()}-{menu['id']}",
-                        "label_key": menu["label_key"],
-                        "type": "Role",
-                        "roles": [role.name],
-                        "items": kept,
-                    }
-                    if source == "core" and menu.get("type") == "System":
-                        help_entries.append(entry)
-                    elif source == "core":
-                        core_entries.append(entry)
-                    else:
-                        plugin_entries.append(entry)
-
-            role_menus = plugin_entries + core_entries + help_entries
-            if role_menus:
-                self._role_menu_cache[role.name] = role_menus
-        logger.info(
-            "Role menu cache built: %s", list(self._role_menu_cache.keys())
-        )
-
-    def _filter_by_paths(self, items: List[Dict], accessible: set) -> List[Dict]:
-        """Recursively keep only Link items whose href is in accessible, preserving Menu containers."""
-        result: List[Dict] = []
-        for item in items:
-            item_type = item.get("type")
-            if item_type == "Separator":
-                result.append(item)
-            elif item_type == "Link":
-                if item.get("href") in accessible:
-                    result.append(item)
-            elif item_type == "Menu":
-                children = self._filter_by_paths(item.get("items", []), accessible)
-                if children:
-                    result.append({**item, "items": children})
-        return clean_separators(result)
-
-    # ------------------------------------------------------------------
     # Menu hub context
     # ------------------------------------------------------------------
 
@@ -272,9 +199,7 @@ class AppLugService:
         raw = self.menu_loader.load_all()
 
         # ------ filter & translate -------
-        # filtered[source] = role-filtered raw menu dicts (for role analysis)
         # translated[source] = client-ready translated menu dicts
-        filtered: Dict[str, List[Dict]] = {}
         translated: Dict[str, List[Dict]] = {}
 
         for source, menus in raw.items():
@@ -285,7 +210,6 @@ class AppLugService:
                 )
                 continue
 
-            f_list: List[Dict] = []
             t_list: List[Dict] = []
             for menu in menus:
                 if not menu_is_visible(menu, user_roles):
@@ -294,15 +218,13 @@ class AppLugService:
                 if not filtered_items:
                     # All items were role-filtered away; hide the menu entirely.
                     continue
-                f_list.append({**menu, "items": filtered_items})
                 t_list.append({
                     "id": menu["id"],
                     "label": t.get(menu["label_key"], menu["label_key"]),
                     "type": "Menu",   # Hub rendering type; menu category is for selector only
                     "items": translate_items(filtered_items, t),
                 })
-            if f_list:
-                filtered[source] = f_list
+            if t_list:
                 translated[source] = t_list
 
         # ------ selector ------
@@ -331,9 +253,53 @@ class AppLugService:
             selector.append({"type": "header", "label": t.get("menu_section_applications", "Applications")})
             selector.extend(app_entries)
 
-        # Roles section — roles present in the cache that this user actually holds.
-        seen_roles = [r for r in self._role_menu_cache if r in user_roles]
+        # ------ role hubs (computed here so seen_roles is ready for the selector) ------
+        # Role hubs contain ONLY core menus of type "Role" that explicitly
+        # declare the role in their roles field, plus System (Help) last.
+        # Application-type menus (plugins) are never included — they belong
+        # in the Default and per-AppLug hubs only.  This ensures that
+        # admin_menu.json (type Role, roles: ["Admin"]) appears in the Admin
+        # hub, while eyerate_menu.json (type Application) does not.
+        seen_roles: List[str] = []
+        role_hubs: Dict[str, List[Dict]] = {}
 
+        for role_name in user_roles:
+            r_hub: List[Dict] = []
+
+            # Core Role-type menus where this role is explicitly declared
+            for menu in raw.get("core", []):
+                if menu.get("type") != "Role":
+                    continue
+                if role_name not in menu.get("roles", []):
+                    continue
+                items = filter_items(menu.get("items", []), [role_name])
+                if items:
+                    r_hub.append({
+                        "id": menu["id"],
+                        "label": t.get(menu["label_key"], menu["label_key"]),
+                        "type": "Menu",
+                        "items": translate_items(items, t),
+                    })
+
+            # System (Help) menus last — only when hub has other content
+            if r_hub:
+                for menu in raw.get("core", []):
+                    if menu.get("type") != "System":
+                        continue
+                    items = filter_items(menu.get("items", []), [role_name])
+                    if items:
+                        r_hub.append({
+                            "id": menu["id"],
+                            "label": t.get(menu["label_key"], menu["label_key"]),
+                            "type": "Menu",
+                            "items": translate_items(items, t),
+                        })
+
+            if r_hub:
+                seen_roles.append(role_name)
+                role_hubs[role_name] = r_hub
+
+        # Roles section — roles that have at least one visible menu item.
         if seen_roles:
             selector.append({"type": "separator"})
             selector.append({"type": "header", "label": t.get("menu_section_roles", "Roles")})
@@ -345,7 +311,6 @@ class AppLugService:
 
         # Identify System-type (Help) core menus for consistent ordering and
         # inclusion as the last item in every hub.
-        raw = self.menu_loader.load_all()
         core_menu_type: Dict[str, str] = {
             m["id"]: m.get("type", "") for m in raw.get("core", [])
         }
@@ -382,18 +347,9 @@ class AppLugService:
             if plugin_id in translated:
                 hubs[plugin_id] = translated[plugin_id] + core_help_menus
 
-        # Per-Role hub: built from the startup cache, translated on demand.
-        for role in seen_roles:
-            role_hub: List[Dict] = [
-                {
-                    "id": rm["id"],
-                    "label": t.get(rm["label_key"], rm["label_key"]),
-                    "type": "Menu",
-                    "items": translate_items(rm["items"], t),
-                }
-                for rm in self._role_menu_cache.get(role, [])
-            ]
-            hubs[f"__role_{role}__"] = role_hub
+        # Per-Role hub: built above from *_menu.json filtered per role.
+        for role_name, r_hub in role_hubs.items():
+            hubs[f"__role_{role_name}__"] = r_hub
 
         # Favorites hub — reserved for future use.
         hubs["__favorites__"] = []

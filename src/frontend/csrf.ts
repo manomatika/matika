@@ -7,16 +7,16 @@ export function getCsrfToken(): string {
 }
 
 /**
- * Injects a hidden csrftoken input into a form if one is not already present.
+ * Injects a hidden csrf_token input into a form if one is not already present.
  * Call this before any programmatic form.submit() call.
  */
 export function injectCsrfToken(form: HTMLFormElement): void {
-    if (form.querySelector('input[name="csrftoken"]')) return;
+    if (form.querySelector('input[name="csrf_token"]')) return;
     const token = getCsrfToken();
     if (!token) return;
     const input = document.createElement("input");
     input.type = "hidden";
-    input.name = "csrftoken";
+    input.name = "csrf_token";
     input.value = token;
     form.appendChild(input);
 }

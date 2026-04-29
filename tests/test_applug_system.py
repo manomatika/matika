@@ -5,6 +5,7 @@ import shutil
 from matika.core.applug_service import AppLugService
 from matika.database import Role, Permission, PageType, PermissionLevel
 from matika.core.applug import BaseAppLug
+from matika.core.paths import get_matika_version
 
 # Mock Plugin for Testing
 MOCK_PLUGIN_CONTENT = """
@@ -31,6 +32,7 @@ def mock_plugin(plugin_dir):
     manifest = {
         "id": "test_plugin",
         "version": "1.0.0",
+        "matika_version": get_matika_version(),
         "entry_point": "plugin.MockPlugin",
         "permissions": [
             {
@@ -137,7 +139,7 @@ def test_resilience_to_faulty_plugins(plugin_dir, db):
 def test_resilience_to_missing_entry_point(plugin_dir, db):
     missing_path = os.path.join(plugin_dir, "missing_code")
     os.makedirs(missing_path)
-    manifest = {"id": "missing", "version": "1.0", "entry_point": "nonexistent:Class"}
+    manifest = {"id": "missing", "version": "1.0", "matika_version": get_matika_version(), "entry_point": "nonexistent:Class"}
     with open(os.path.join(missing_path, "applug.json"), "w") as f:
         json.dump(manifest, f)
 
@@ -180,92 +182,6 @@ def test_plugin_on_unload(plugin_dir, mock_plugin, db):
     assert plugin.unloaded is True
 
 
-# ---------------------------------------------------------------------------
-# _filter_by_paths
-# ---------------------------------------------------------------------------
-
-class TestFilterByPaths:
-    """Unit tests for AppLugService._filter_by_paths (role menu building helper)."""
-
-    def _svc(self, plugin_dir):
-        return AppLugService(plugins_dir=plugin_dir)
-
-    def test_link_included_when_href_accessible(self, plugin_dir):
-        svc = self._svc(plugin_dir)
-        items = [{"type": "Link", "label_key": "k", "href": "/admin/page"}]
-        result = svc._filter_by_paths(items, {"/admin/page"})
-        assert len(result) == 1
-        assert result[0]["href"] == "/admin/page"
-
-    def test_link_excluded_when_href_not_accessible(self, plugin_dir):
-        svc = self._svc(plugin_dir)
-        items = [{"type": "Link", "label_key": "k", "href": "/admin/page"}]
-        assert svc._filter_by_paths(items, set()) == []
-        assert svc._filter_by_paths(items, {"/other"}) == []
-
-    def test_menu_container_kept_when_children_accessible(self, plugin_dir):
-        svc = self._svc(plugin_dir)
-        items = [{"type": "Menu", "label_key": "sub", "items": [
-            {"type": "Link", "label_key": "x", "href": "/x"},
-        ]}]
-        result = svc._filter_by_paths(items, {"/x"})
-        assert len(result) == 1
-        assert result[0]["type"] == "Menu"
-        assert len(result[0]["items"]) == 1
-
-    def test_menu_container_dropped_when_no_children_accessible(self, plugin_dir):
-        svc = self._svc(plugin_dir)
-        items = [{"type": "Menu", "label_key": "sub", "items": [
-            {"type": "Link", "label_key": "x", "href": "/x"},
-        ]}]
-        assert svc._filter_by_paths(items, set()) == []
-
-    def test_separator_cleaned_at_edges(self, plugin_dir):
-        svc = self._svc(plugin_dir)
-        items = [
-            {"type": "Link", "label_key": "a", "href": "/a"},
-            {"type": "Separator"},
-            {"type": "Link", "label_key": "b", "href": "/b"},
-        ]
-        # Only /a accessible → trailing separator removed
-        result = svc._filter_by_paths(items, {"/a"})
-        assert result == [{"type": "Link", "label_key": "a", "href": "/a"}]
-
-    def test_mixed_accessible_and_filtered(self, plugin_dir):
-        svc = self._svc(plugin_dir)
-        items = [
-            {"type": "Link", "label_key": "a", "href": "/a"},
-            {"type": "Link", "label_key": "b", "href": "/b"},
-        ]
-        result = svc._filter_by_paths(items, {"/a"})
-        assert len(result) == 1
-        assert result[0]["href"] == "/a"
-
-
-# ---------------------------------------------------------------------------
-# _build_role_menus and role menu cache
-# ---------------------------------------------------------------------------
-
-def test_build_role_menus_populates_cache(plugin_dir, mock_plugin, db):
-    """After discover(), _role_menu_cache contains entries for roles with non-NONE permissions."""
-    service = AppLugService(plugins_dir=plugin_dir)
-    service.discover(db)  # calls _build_role_menus internally
-
-    # Admin and User are seeded by init_db and have non-NONE permissions
-    assert "Admin" in service._role_menu_cache
-    assert "User" in service._role_menu_cache
-
-def test_build_role_menus_excludes_role_with_no_permissions(plugin_dir, db):
-    """A role that has no non-NONE permissions is not included in the cache."""
-    service = AppLugService(plugins_dir=plugin_dir)
-
-    # Seed a role with no permissions
-    empty_role = Role(name="EmptyRole", description="No perms", is_system=False)
-    db.add(empty_role)
-    db.commit()
-
-    service.discover(db)
-    assert "EmptyRole" not in service._role_menu_cache
 
 def test_role_hub_ordering(plugin_dir, mock_plugin, db):
     """Role hub items: plugin menus first, core non-help second, Help last."""
@@ -302,6 +218,7 @@ def test_display_name_used_in_selector_over_name(plugin_dir, db):
     manifest = {
         "id": "named_plugin",
         "version": "1.0",
+        "matika_version": get_matika_version(),
         "name": "Named Plugin Full Name",
         "display_name": "Short Name",
         "entry_point": "plugin.MockPlugin",
@@ -343,6 +260,7 @@ def test_display_name_falls_back_to_name(plugin_dir, db):
     manifest = {
         "id": "nodn_plugin",
         "version": "1.0",
+        "matika_version": get_matika_version(),
         "name": "Full Name Only",
         "entry_point": "plugin.MockPlugin",
     }
@@ -373,3 +291,138 @@ def test_display_name_falls_back_to_name(plugin_dir, db):
     result = service.get_menus_for_context(user_roles=["Admin"], t={})
     item_labels = {e["id"]: e["label"] for e in result["selector"] if e.get("type") == "item"}
     assert item_labels.get("nodn_plugin") == "Full Name Only"
+
+
+# ---------------------------------------------------------------------------
+# matika_version compatibility contract
+# ---------------------------------------------------------------------------
+
+def test_missing_matika_version_skips_plugin(plugin_dir, db):
+    """An applug.json without matika_version is refused at startup."""
+    p_path = os.path.join(plugin_dir, "no_ver_plugin")
+    os.makedirs(p_path)
+    manifest = {
+        "id": "no_ver_plugin",
+        "version": "1.0",
+        "entry_point": "plugin.MockPlugin",
+        # matika_version intentionally absent
+    }
+    with open(os.path.join(p_path, "applug.json"), "w") as f:
+        json.dump(manifest, f)
+    with open(os.path.join(p_path, "plugin.py"), "w") as f:
+        f.write(MOCK_PLUGIN_CONTENT)
+
+    service = AppLugService(plugins_dir=plugin_dir)
+    plugins = service.discover(db)
+
+    loaded_ids = [p.id for p in plugins]
+    assert "no_ver_plugin" not in loaded_ids
+
+
+def test_mismatched_matika_version_skips_plugin(plugin_dir, db):
+    """An applug.json with a matika_version that doesn't match running Matika is refused."""
+    p_path = os.path.join(plugin_dir, "bad_ver_plugin")
+    os.makedirs(p_path)
+    manifest = {
+        "id": "bad_ver_plugin",
+        "version": "1.0",
+        "matika_version": "0.0.0",   # deliberately wrong
+        "entry_point": "plugin.MockPlugin",
+    }
+    with open(os.path.join(p_path, "applug.json"), "w") as f:
+        json.dump(manifest, f)
+    with open(os.path.join(p_path, "plugin.py"), "w") as f:
+        f.write(MOCK_PLUGIN_CONTENT)
+
+    service = AppLugService(plugins_dir=plugin_dir)
+    plugins = service.discover(db)
+
+    loaded_ids = [p.id for p in plugins]
+    assert "bad_ver_plugin" not in loaded_ids
+
+
+def test_correct_matika_version_loads_plugin(plugin_dir, db):
+    """An applug.json with the correct matika_version loads successfully."""
+    p_path = os.path.join(plugin_dir, "good_ver_plugin")
+    os.makedirs(p_path)
+    manifest = {
+        "id": "good_ver_plugin",
+        "version": "1.0",
+        "matika_version": get_matika_version(),
+        "entry_point": "plugin.MockPlugin",
+    }
+    with open(os.path.join(p_path, "applug.json"), "w") as f:
+        json.dump(manifest, f)
+    with open(os.path.join(p_path, "plugin.py"), "w") as f:
+        f.write(MOCK_PLUGIN_CONTENT)
+
+    service = AppLugService(plugins_dir=plugin_dir)
+    plugins = service.discover(db)
+
+    loaded_ids = [p.id for p in plugins]
+    assert "good_ver_plugin" in loaded_ids
+
+
+def test_validate_compatibility_error_message_is_informative(plugin_dir, db):
+    """The RuntimeError from _validate_compatibility includes actionable text."""
+    import pytest
+    from matika.core.applug import BaseAppLug
+
+    class ConcretePlugin(BaseAppLug):
+        def on_load(self, db): pass
+        def on_unload(self, db): pass
+
+    with pytest.raises(RuntimeError, match="matika_version"):
+        ConcretePlugin({"id": "test", "version": "1.0"})  # missing matika_version
+
+    with pytest.raises(RuntimeError, match="0.0.0"):
+        ConcretePlugin({"id": "test", "version": "1.0", "matika_version": "0.0.0"})  # wrong version
+
+
+# ---------------------------------------------------------------------------
+# MATIKA_ENV=development version check relaxation
+# ---------------------------------------------------------------------------
+
+class _ConcretePlugin(BaseAppLug):
+    def on_load(self, db): pass
+    def on_unload(self, db): pass
+
+
+def test_dev_mode_dev_version_compatible_with_base_released_version(monkeypatch):
+    """MATIKA_ENV=development: 0.0.3_dev is compatible with applug declaring 0.0.2."""
+    monkeypatch.setenv("MATIKA_ENV", "development")
+    monkeypatch.setattr("matika.core.applug.get_matika_version", lambda: "0.0.3_dev")
+    plugin = _ConcretePlugin({"id": "p", "version": "1.0", "matika_version": "0.0.2"})
+    assert plugin.matika_version == "0.0.2"
+
+
+def test_dev_mode_dev_version_compatible_with_same_base_version(monkeypatch):
+    """MATIKA_ENV=development: 0.0.3_dev is compatible with applug declaring 0.0.3."""
+    monkeypatch.setenv("MATIKA_ENV", "development")
+    monkeypatch.setattr("matika.core.applug.get_matika_version", lambda: "0.0.3_dev")
+    plugin = _ConcretePlugin({"id": "p", "version": "1.0", "matika_version": "0.0.3"})
+    assert plugin.matika_version == "0.0.3"
+
+
+def test_strict_mode_dev_version_vs_released_refused(monkeypatch):
+    """MATIKA_ENV not set: 0.0.3_dev vs 0.0.2 raises RuntimeError."""
+    monkeypatch.delenv("MATIKA_ENV", raising=False)
+    monkeypatch.setattr("matika.core.applug.get_matika_version", lambda: "0.0.3_dev")
+    with pytest.raises(RuntimeError, match="0.0.2"):
+        _ConcretePlugin({"id": "p", "version": "1.0", "matika_version": "0.0.2"})
+
+
+def test_strict_mode_matching_released_version_passes(monkeypatch):
+    """MATIKA_ENV not set: exact match 0.0.2 == 0.0.2 loads without error."""
+    monkeypatch.delenv("MATIKA_ENV", raising=False)
+    monkeypatch.setattr("matika.core.applug.get_matika_version", lambda: "0.0.2")
+    plugin = _ConcretePlugin({"id": "p", "version": "1.0", "matika_version": "0.0.2"})
+    assert plugin.matika_version == "0.0.2"
+
+
+def test_non_development_env_enforces_strict_matching(monkeypatch):
+    """MATIKA_ENV=production: strict matching enforced even with _dev running version."""
+    monkeypatch.setenv("MATIKA_ENV", "production")
+    monkeypatch.setattr("matika.core.applug.get_matika_version", lambda: "0.0.3_dev")
+    with pytest.raises(RuntimeError, match="0.0.2"):
+        _ConcretePlugin({"id": "p", "version": "1.0", "matika_version": "0.0.2"})

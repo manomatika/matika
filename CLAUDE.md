@@ -29,12 +29,22 @@ python scripts/dev_setup.py
 export SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(64))")
 
 # Or create a persistent .env file (copy .env.example first):
+cp .env.example .env   # then edit .env
 export $(cat .env | xargs)
 ```
 
-### Run the App
+`MATIKA_ENV=development` — set this in your local `.env` to allow AppLugs that declare
+a released `matika_version` (e.g. `0.0.2`) to load when Matika is running at a `_dev`
+version (e.g. `0.0.3_dev`). This relaxes only the version check — no other validation
+changes. Never set this in production. Never commit `.env`.
+
+### Run the Development Server
 ```bash
-SECRET_KEY=<your-key> PYTHONPATH=src uvicorn matika.main:app --host 127.0.0.1 --port 8000 --reload
+# With .env loaded (recommended):
+export $(cat .env | xargs) && PYTHONPATH=src uvicorn matika.main:app --host 127.0.0.1 --port 8000 --reload
+
+# Or inline:
+SECRET_KEY=<your-key> MATIKA_ENV=development PYTHONPATH=src uvicorn matika.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
 ### Build TypeScript
@@ -110,9 +120,11 @@ Standalone `.dmg`/`.exe` built with PyInstaller. Bundles the framework + selecte
 
 #### AppLug contract
 Every plugin directory must contain:
-- `applug.json` — manifest: `id`, `version`, `name`, optional `display_name`, `entry_point`, `permissions`
+- `applug.json` — manifest: `id`, `version`, `name`, `matika_version` (required — exact Matika version this AppLug was built and tested against), optional `display_name`, `entry_point`, `permissions`
 - `<id>_menu.json` — at least one menu metadata file (schema v1.0)
 - Python class extending `BaseAppLug` with `on_load(db)` and `on_unload(db)`
+
+`matika_version` (required) is checked at startup by `BaseAppLug._validate_compatibility()`. If absent or mismatched the AppLug is refused and skipped — a clear `RuntimeError` is logged. This is the compatibility contract baseline introduced in Matika 0.0.2; no breaking changes to `BaseAppLug` or the plugin discovery contract from this version forward.
 
 `display_name` (optional) is the short UI label shown in the menu selector. Falls back to `name` if absent.
 

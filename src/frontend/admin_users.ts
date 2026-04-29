@@ -204,15 +204,15 @@ document.addEventListener('DOMContentLoaded', () => {
         
         actionForm.action = `/admin/users/update/${userId}`;
         formEmail.value = email;
-        
+
         if (!forcePw) {
-            formForcePw.name = ""; 
+            formForcePw.name = "";
         } else {
             formForcePw.name = "force_password_change";
             formForcePw.value = "true";
         }
 
-        actionForm.submit();
+        injectCsrfToken(actionForm); actionForm.submit();
     }
 
     function handleDeleteUser() {

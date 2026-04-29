@@ -139,10 +139,12 @@ def test_applug_base_methods():
     class SimplePlugin(BaseAppLug):
         def on_load(self, db): pass
         def on_unload(self, db): pass
-    manifest = {"id": "simple", "version": "1.0"}
+    from matika.core.paths import get_matika_version
+    manifest = {"id": "simple", "version": "1.0", "matika_version": get_matika_version()}
     p = SimplePlugin(manifest)
     assert p.id == "simple"
     assert p.version == "1.0"
+    assert p.matika_version == get_matika_version()
     assert p.get_router() is not None
 
 def test_auth_setup_oauth():
