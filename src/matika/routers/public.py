@@ -137,6 +137,7 @@ async def login(request: Request, email: str = Form(...), password: str = Form(.
     request.session["user_id"] = user.id
     request.session["last_activity"] = int(time.time())
     request.session["session_created"] = int(time.time())
+    request.session["fresh_login"] = True
 
     if remember_me:
         request.session["is_persistent"] = True
@@ -148,6 +149,7 @@ async def login(request: Request, email: str = Form(...), password: str = Form(.
 @router.get("/logout")
 async def logout(request: Request):
     request.session.clear()
+    request.session["fresh_login"] = True
     return RedirectResponse(url="/", status_code=303)
 
 @router.get("/register", response_class=HTMLResponse)

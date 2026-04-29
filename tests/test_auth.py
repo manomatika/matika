@@ -150,6 +150,36 @@ def test_force_password_change_page_renders_form(client, db):
     assert 'type="password"' in resp.text
 
 
+def test_fresh_login_meta_tag_present_after_login(client, test_user):
+    """After login the first page render must include the fresh-login meta tag."""
+    # follow_redirects=False so the redirect (and its page render) does not
+    # consume the flag before our explicit GET / below.
+    client.post("/login", data={"email": "test@example.com", "password": "testpassword"}, follow_redirects=False)
+    response = client.get("/")
+    assert response.status_code == 200
+    assert '<meta name="fresh-login" content="true">' in response.text
+
+
+def test_fresh_login_meta_tag_cleared_after_first_render(client, test_user):
+    """The fresh-login meta tag must not appear on subsequent page renders."""
+    client.post("/login", data={"email": "test@example.com", "password": "testpassword"}, follow_redirects=False)
+    client.get("/")  # consumes the flag
+    response = client.get("/")
+    assert response.status_code == 200
+    assert 'name="fresh-login"' not in response.text
+
+
+def test_fresh_login_meta_tag_present_after_logout_and_relogin(client, test_user):
+    """After logout and re-login the fresh-login meta tag must appear again."""
+    client.post("/login", data={"email": "test@example.com", "password": "testpassword"}, follow_redirects=False)
+    client.get("/")  # consume first flag
+    client.get("/logout")
+    client.post("/login", data={"email": "test@example.com", "password": "testpassword"}, follow_redirects=False)
+    response = client.get("/")
+    assert response.status_code == 200
+    assert '<meta name="fresh-login" content="true">' in response.text
+
+
 def test_force_password_change_flag_cleared_after_change(client, db):
     """After a successful password change, force_password_change must be False in the DB."""
     hashed_pwd = get_password_hash("oldpw")
