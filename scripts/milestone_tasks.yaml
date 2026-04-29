@@ -1,9 +1,107 @@
-milestone: "Milestone 2 - Refactor menu architecture"
-branch: "feat/milestone-2-menu-refactor"
-description: "Refactor menu architecture"
+milestone: "0.0.4 — Deployment and Install"
+version: "0.0.4_dev"
+branch: "feature/0.0.4-deployment-install"
+description: "Complete ahimsa recipe system, deployment pipeline, and single-click installer for macOS and Windows"
+
 issues:
-  - title: "Refactor menu architecture"
-    labels: ["feature", "milestone-2"]
-    description: |
-      Refactor menu architecture
-    
+  - title: "feat: implement recipe validator in ahimsa"
+    labels: ["feature"]
+    body: |
+      Complete the recipe validation script in ahimsa/scripts/validate_recipe.py.
+      Validation rules:
+      - All applugs must declare identical matika_version values
+      - All applug matika_version values must match recipe.matika.version
+      - matika.repo is required
+      - Exact version pins only, no ranges
+      - Fetch and verify applug.json from GitHub at declared tag
+      Include resolver abstraction for future registry support.
+
+  - title: "feat: ahimsa build pipeline — clone matika and applugs at pinned versions"
+    labels: ["feature"]
+    body: |
+      Implement the build pipeline in ahimsa build.yml to:
+      - Clone matika repo at recipe.matika.version tag into build/matika
+      - Clone each applug at its declared tag into build/matika/plugins/<name>
+      - Run npm install && npm run build in build/matika
+      - Run pyinstaller using matika.spec
+
+  - title: "feat: update matika.spec — remove RateEye deps, add plugin assets, wire version and icon"
+    labels: ["feature"]
+    body: |
+      matika.spec needs significant updates:
+      - Remove hardcoded RateEye/yfinance/pandas/numpy hidden imports
+      - Add plugin datas and pathex for bundled applugs
+      - Read version from VERSION file dynamically
+      - Wire app icon from src/matika/static/img/
+      - Remove references to non-existent files (INSTALL_GUIDE.txt, COPYRIGHT.txt)
+      - Fix matika.metadata path that no longer exists
+
+  - title: "feat: update launcher.py — first-run init, SECRET_KEY, migrations, plugin extraction"
+    labels: ["feature"]
+    body: |
+      launcher.py needs significant updates for the frozen app context:
+      - Generate and persist SECRET_KEY to ~/Matika/.env on first run
+      - Run alembic upgrade head on first run
+      - Extract bundled plugins to ~/Matika/plugins/<name> on first run
+      - Set MATIKA_PLUGINS_DIR to ~/Matika/plugins/
+      - Gate first-run logic on ~/Matika/.initialized sentinel file
+      - Handle port 8000 conflict with clear user-facing error
+      - Remove leftover RateEye artifacts (Sequoia-Ready comment etc.)
+
+  - title: "feat: implement dmgbuild for macOS arm64 and x86_64"
+    labels: ["feature"]
+    body: |
+      Implement DMG creation using dmgbuild Python library.
+      - arm64 on macos-14 runner
+      - x86_64 on macos-13 runner
+      - DMG filename: <app-name>-<version>-macos-<arch>.dmg
+      - Replace TODO stub in build.yml with real implementation
+      - Test on clean macOS install
+
+  - title: "feat: implement Inno Setup Windows installer"
+    labels: ["feature"]
+    body: |
+      Update windows_installer.iss and implement Windows build:
+      - Fix AppVersion to read from VERSION file dynamically
+      - Bundle directory output from PyInstaller (not single exe)
+      - Include all plugin assets
+      - Replace TODO stub in build.yml with real implementation
+      - Test on clean Windows 11 install
+
+  - title: "feat: ahimsa release job — create GitHub release with DMG and EXE artifacts"
+    labels: ["feature"]
+    body: |
+      Implement the release job in build.yml:
+      - Download all three artifacts (macos-arm64, macos-x86_64, windows)
+      - Create GitHub release with all three attached
+      - Release title: <app-name> v<version>
+      - Release notes generated from recipe.json listing applugs and versions
+      - Only runs on tag push, not workflow_dispatch
+
+  - title: "qa: test DMG install on clean macOS arm64"
+    labels: ["qa"]
+    body: |
+      Manual QA test on a clean macOS arm64 machine:
+      - Fresh install from DMG
+      - App launches successfully
+      - Browser opens to http://127.0.0.1:8000
+      - Admin login works
+      - EyeRate plugin loads and Securities page accessible
+      - No Python environment required
+
+  - title: "qa: test DMG install on clean macOS x86_64"
+    labels: ["qa"]
+    body: |
+      Manual QA test on a clean macOS x86_64 machine:
+      - Same checklist as arm64 test
+
+  - title: "qa: test EXE install on clean Windows 11"
+    labels: ["qa"]
+    body: |
+      Manual QA test on a clean Windows 11 machine:
+      - Fresh install from EXE
+      - App launches successfully
+      - Browser opens to http://127.0.0.1:8000
+      - Admin login works
+      - EyeRate plugin loads and Securities page accessible
+      - No Python environment required
