@@ -1,7 +1,7 @@
 import os
 import json
 import logging
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -80,21 +80,26 @@ def translate_items(items: List[Dict], t: Dict[str, str]) -> List[Dict]:
 
 class MenuLoaderService:
     """
-    Standalone service for discovering and loading *_menu.json files.
+    Standalone service for discovering and loading menu files.
 
     Scans two locations:
       - core_menus_dir: framework-owned menus (src/matika/menus/)
-      - plugins_dir:    one subdirectory per AppLug, each containing *_menu.json files
+      - plugins_dir:    one subdirectory per AppLug
 
-    Returns raw (unfiltered, untranslated) menu objects grouped by source key.
-    'core' is the reserved source key for framework menus; plugin source keys
-    are the plugin directory names (which must match the plugin id in applug.json).
+    load_all() loads legacy *_menu.json files (core menus only in practice).
+    load_applug_menus() loads the consolidated *_menus.json files from plugin
+    directories, returning structured application and per-role menu data.
     """
 
     def __init__(self, core_menus_dir: str, plugins_dir: str):
         self.core_menus_dir = core_menus_dir
         self.plugins_dir = plugins_dir
         self._cache: Optional[Dict[str, List[Dict]]] = None
+        self._applug_cache: Optional[Dict[str, Dict]] = None
+
+    # ------------------------------------------------------------------
+    # Core menu loading (legacy *_menu.json — used for core menus only)
+    # ------------------------------------------------------------------
 
     def load_all(self) -> Dict[str, List[Dict]]:
         """
@@ -104,9 +109,6 @@ class MenuLoaderService:
         if self._cache is None:
             self._cache = self._do_load()
         return self._cache
-
-    def invalidate_cache(self) -> None:
-        self._cache = None
 
     def _do_load(self) -> Dict[str, List[Dict]]:
         result: Dict[str, List[Dict]] = {}
@@ -148,3 +150,92 @@ class MenuLoaderService:
             except Exception as exc:
                 logger.error("Failed to load menu file %s: %s", path, exc)
         return menus
+
+    # ------------------------------------------------------------------
+    # Consolidated applug menu loading (*_menus.json)
+    # ------------------------------------------------------------------
+
+    def load_applug_menus(self) -> Dict[str, Dict]:
+        """
+        Scans plugin directories for *_menus.json files and returns structured data.
+
+        Returns:
+            {
+                plugin_id: {
+                    "application": <menu dict or None>,
+                    "roles": { role_name: <role entry dict>, ... }
+                }
+            }
+
+        Emits a loud WARNING if a plugin directory contains a *_permission.json
+        file but no *_menus.json — its pages would be unreachable from any menu.
+
+        Result is cached after the first call; call invalidate_cache() to refresh.
+        """
+        if self._applug_cache is None:
+            self._applug_cache = self._do_load_applug_menus()
+        return self._applug_cache
+
+    def _do_load_applug_menus(self) -> Dict[str, Dict]:
+        result: Dict[str, Dict] = {}
+        if not os.path.exists(self.plugins_dir):
+            return result
+
+        for entry in sorted(os.listdir(self.plugins_dir)):
+            plugin_path = os.path.join(self.plugins_dir, entry)
+            if not os.path.isdir(plugin_path):
+                continue
+
+            menus_file: Optional[str] = None
+            permission_file: Optional[str] = None
+            for filename in os.listdir(plugin_path):
+                if filename.endswith("_menus.json"):
+                    menus_file = os.path.join(plugin_path, filename)
+                if filename.endswith("_permission.json") or filename.endswith("_permissions.json"):
+                    permission_file = os.path.join(plugin_path, filename)
+
+            if permission_file and not menus_file:
+                logger.warning(
+                    "WARNING: AppLug '%s' declares permissions but provides no "
+                    "*_menus.json. Its pages will be unreachable from any menu. "
+                    "This is likely a development oversight.",
+                    entry,
+                )
+
+            if not menus_file:
+                continue
+
+            try:
+                with open(menus_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+
+                schema = data.get("schema_version")
+                if schema != SUPPORTED_SCHEMA:
+                    logger.warning(
+                        "Skipping %s: unsupported schema_version '%s'", menus_file, schema
+                    )
+                    continue
+
+                menus_section = data.get("menus", {})
+                application = menus_section.get("application") or None
+
+                roles_dict: Dict[str, Dict] = {}
+                for role_entry in menus_section.get("roles", []):
+                    role_name = role_entry.get("role")
+                    if role_name:
+                        roles_dict[role_name] = role_entry
+
+                result[entry] = {"application": application, "roles": roles_dict}
+
+            except Exception as exc:
+                logger.error("Failed to load applug menus file %s: %s", menus_file, exc)
+
+        return result
+
+    # ------------------------------------------------------------------
+    # Cache management
+    # ------------------------------------------------------------------
+
+    def invalidate_cache(self) -> None:
+        self._cache = None
+        self._applug_cache = None

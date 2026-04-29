@@ -13,7 +13,7 @@ type SelectorEntry =
   | { type: "header"; label: string };
 
 interface MenuItem {
-  type: "Link" | "Menu" | "Separator";
+  type: "Link" | "Menu" | "Separator" | "SectionHeader";
   label?: string;
   href?: string;
   open_new_tab?: boolean;
@@ -58,8 +58,12 @@ document.addEventListener("DOMContentLoaded", () => {
     const selectorItems = menusData.selector.filter(
       (e): e is { type: "item"; id: string; label: string } => e.type === "item"
     );
-    const storageKey = getHubStorageKey();
-    const stored     = sessionStorage.getItem(storageKey);
+    const storageKey  = getHubStorageKey();
+    const freshLogin  = document.querySelector<HTMLMetaElement>('meta[name="fresh-login"]')?.content === "true";
+    if (freshLogin) {
+      sessionStorage.removeItem(storageKey);
+    }
+    const stored      = sessionStorage.getItem(storageKey);
     const userPref   = document.querySelector<HTMLMetaElement>('meta[name="user-default-menu"]')?.content ?? "";
 
     const validStored = stored  && selectorItems.some((e) => e.id === stored);
@@ -237,6 +241,13 @@ function buildDropdownEntry(item: MenuItem): HTMLElement {
   if (item.type === "Separator") {
     const el = document.createElement("div");
     el.className = "hub-dd-separator";
+    return el;
+  }
+
+  if (item.type === "SectionHeader") {
+    const el = document.createElement("div");
+    el.className = "hub-dd-section-header";
+    el.textContent = item.label ?? "";
     return el;
   }
 

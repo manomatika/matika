@@ -40,12 +40,21 @@ changes. Never set this in production. Never commit `.env`.
 
 ### Run the Development Server
 ```bash
-# With .env loaded (recommended):
-export $(cat .env | xargs) && PYTHONPATH=src uvicorn matika.main:app --host 127.0.0.1 --port 8000 --reload
-
-# Or inline:
-SECRET_KEY=<your-key> MATIKA_ENV=development PYTHONPATH=src uvicorn matika.main:app --host 127.0.0.1 --port 8000 --reload
+source .venv/bin/activate && export $(cat .env | grep -v '^#' | xargs) && PYTHONPATH=src uvicorn matika.main:app --host 127.0.0.1 --port 8000 --reload
 ```
+
+Or as separate steps for clarity:
+```bash
+source .venv/bin/activate
+export $(cat .env | grep -v '^#' | xargs)
+PYTHONPATH=src uvicorn matika.main:app --host 127.0.0.1 --port 8000 --reload
+```
+
+Why each part is needed:
+- `source .venv/bin/activate` — required; puts `venv/bin/` on PATH so `uvicorn` and all dependencies are found
+- `export $(cat .env | grep -v '^#' | xargs)` — loads `SECRET_KEY` and `MATIKA_ENV` from `.env` into the shell (`grep -v '^#'` strips comment lines)
+- `PYTHONPATH=src` — tells Python where to find the `matika` package
+- `--reload` — auto-restarts the server on file changes
 
 ### Build TypeScript
 ```bash

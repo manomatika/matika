@@ -108,6 +108,10 @@ def create_app() -> FastAPI:
                     user_default_menu = s.value or ""
                     break
 
+        # Consume the one-time fresh_login flag — fires on the first page render
+        # after login or logout, then is gone so only one page sees it.
+        fresh_login = bool(request.session.pop("fresh_login", False))
+
         return {
             "menus_data": menus_data,
             "t": t,
@@ -115,6 +119,7 @@ def create_app() -> FastAPI:
             "csrf_token": csrf_token,
             "user_id": user.id if user else "",
             "user_default_menu": user_default_menu,
+            "fresh_login": fresh_login,
         }
 
     templates.context_processors.append(context_processor)
