@@ -166,3 +166,66 @@ def test_drift_check_fails_on_package_json_mismatch(tmp_path):
     (tmp_path / "package.json").write_text(content.replace('"0.0.4"', '"9.9.9"'))
     with pytest.raises(SystemExit):
         run_drift_check(tmp_path, "0.0.4")
+
+
+# ---------------------------------------------------------------------------
+# --check mode
+# ---------------------------------------------------------------------------
+
+def run_check(root: Path) -> list[str]:
+    with patch.object(sync_version, "REPO_ROOT", root):
+        return sync_version.sync(check_only=True)
+
+
+def test_check_mode_returns_empty_when_clean(tmp_path):
+    make_tree(tmp_path, "0.0.4_dev")
+    run_sync(tmp_path)
+    drifted = run_check(tmp_path)
+    assert drifted == [], f"Expected no drift, got: {drifted}"
+
+
+def test_check_mode_reports_pyproject_drift(tmp_path):
+    make_tree(tmp_path, "0.0.4_dev")
+    run_sync(tmp_path)
+    content = (tmp_path / "pyproject.toml").read_text()
+    (tmp_path / "pyproject.toml").write_text(content.replace('"0.0.4"', '"0.0.1"'))
+    drifted = run_check(tmp_path)
+    assert "pyproject.toml" in drifted[0]
+
+
+def test_check_mode_reports_package_json_drift(tmp_path):
+    make_tree(tmp_path, "0.0.4_dev")
+    run_sync(tmp_path)
+    content = (tmp_path / "package.json").read_text()
+    (tmp_path / "package.json").write_text(content.replace('"0.0.4"', '"9.9.9"'))
+    drifted = run_check(tmp_path)
+    assert "package.json" in drifted[0]
+
+
+def test_check_mode_does_not_modify_files(tmp_path):
+    make_tree(tmp_path, "0.0.4_dev")
+    # Leave files at OLD — check mode must not fix them
+    before_py = (tmp_path / "pyproject.toml").read_text()
+    before_pkg = (tmp_path / "package.json").read_text()
+    run_check(tmp_path)
+    assert (tmp_path / "pyproject.toml").read_text() == before_py
+    assert (tmp_path / "package.json").read_text() == before_pkg
+
+
+def test_check_mode_accepts_dev_version(tmp_path):
+    """--check must not fail just because VERSION carries _dev."""
+    make_tree(tmp_path, "0.0.4_dev")
+    run_sync(tmp_path)
+    # VERSION still has _dev — check mode should be fine with that
+    drifted = run_check(tmp_path)
+    assert drifted == []
+
+
+def test_release_drift_gate_uses_check_mode(tmp_path):
+    """release.py calls sync(check_only=True) as its drift gate.
+    Verify the gate returns no drift immediately after propagation."""
+    make_tree(tmp_path, "0.0.4_dev")
+    with patch.object(sync_version, "REPO_ROOT", tmp_path):
+        sync_version.sync()                            # propagation (as release does)
+        drifted = sync_version.sync(check_only=True)   # drift gate (as release does)
+    assert drifted == [], f"Drift gate should pass after clean propagation, got: {drifted}"
