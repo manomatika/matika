@@ -24,7 +24,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from sync_version import REPO_ROOT, drift_check, read_version, sync  # noqa: E402
+from sync_version import REPO_ROOT, read_version, sync  # noqa: E402
 
 EXACT_VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
 
@@ -65,8 +65,11 @@ def main() -> None:
     # 3. Propagate to all targets
     sync()
 
-    # 4. Drift check
-    drift_check(target_clean)
+    # 4. Drift check — same computation as propagation, read-only
+    drifted = sync(check_only=True)
+    if drifted:
+        print("Drift check failed — aborting release.", file=sys.stderr)
+        sys.exit(1)
 
     # 5. Commit
     stage_paths = ["VERSION", "pyproject.toml", "package.json"]
