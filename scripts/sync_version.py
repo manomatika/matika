@@ -14,11 +14,13 @@ VERSION itself is never modified by this script.
                            package.json:   "version": "0.0.4"
 
 Usage:
-  python scripts/sync_version.py           # propagate (write files)
-  python scripts/sync_version.py --check   # read-only drift check
+  python scripts/sync_version.py                # propagate (write files)
+  python scripts/sync_version.py --check        # read-only drift check, human output
+  python scripts/sync_version.py --check --json # read-only drift check, JSON output
 """
 
 import argparse
+import json as _json
 import re
 import sys
 from pathlib import Path
@@ -82,25 +84,30 @@ def _extract_package_json_version(content: str) -> str:
 # Core: propagate or check (single code path, branches only at write step)
 # ---------------------------------------------------------------------------
 
-def sync(check_only: bool = False) -> list[str]:
+def sync(check_only: bool = False, quiet: bool = False) -> list:
     """
     Propagate VERSION to all targets (check_only=False) or compare without
     writing (check_only=True).
 
     Returns:
-      Normal mode  — list of relative paths that were written.
-      Check mode   — list of relative paths that drifted.
+      Normal mode  — list[str]  of relative paths that were written.
+      Check mode   — list[dict] of drift entries: {"path", "expected", "found"}.
+                     Empty list means clean.
+
+    quiet=True suppresses all print output (use for JSON consumers).
 
     In check mode VERSION may carry _dev; the stripped value is what targets
     are compared against (same as propagation — no special failure for _dev).
     """
     raw, clean = read_version()
-    print(
-        f"sync_version {'--check: checking against' if check_only else ': ' + repr(raw) + ' → propagating'} "
-        f"{clean!r}"
-    )
 
-    affected: list[str] = []
+    if not quiet:
+        print(
+            f"sync_version {'--check: checking against' if check_only else ': ' + repr(raw) + ' → propagating'} "
+            f"{clean!r}"
+        )
+
+    affected: list = []
 
     pyproject = REPO_ROOT / "pyproject.toml"
     if pyproject.exists():
@@ -108,17 +115,21 @@ def sync(check_only: bool = False) -> list[str]:
         expected = _expected_pyproject(current, clean)
         rel = str(pyproject.relative_to(REPO_ROOT))
         if current == expected:
-            print(f"  OK       {rel}")
+            if not quiet:
+                print(f"  OK       {rel}")
         elif check_only:
             found = _extract_pyproject_version(current)
-            print(f"DRIFT  {rel}: expected '{clean}', found '{found}'")
-            affected.append(rel)
+            if not quiet:
+                print(f'DRIFT  {rel}: expected "{clean}", found "{found}"')
+            affected.append({"path": rel, "expected": clean, "found": found})
         else:
             pyproject.write_text(expected)
-            print(f"  UPDATED  {rel}")
+            if not quiet:
+                print(f"  UPDATED  {rel}")
             affected.append(rel)
     else:
-        print("  SKIP    pyproject.toml (not found)")
+        if not quiet:
+            print("  SKIP    pyproject.toml (not found)")
 
     pkg = REPO_ROOT / "package.json"
     if pkg.exists():
@@ -126,17 +137,21 @@ def sync(check_only: bool = False) -> list[str]:
         expected = _expected_package_json(current, clean)
         rel = str(pkg.relative_to(REPO_ROOT))
         if current == expected:
-            print(f"  OK       {rel}")
+            if not quiet:
+                print(f"  OK       {rel}")
         elif check_only:
             found = _extract_package_json_version(current)
-            print(f"DRIFT  {rel}: expected '{clean}', found '{found}'")
-            affected.append(rel)
+            if not quiet:
+                print(f'DRIFT  {rel}: expected "{clean}", found "{found}"')
+            affected.append({"path": rel, "expected": clean, "found": found})
         else:
             pkg.write_text(expected)
-            print(f"  UPDATED  {rel}")
+            if not quiet:
+                print(f"  UPDATED  {rel}")
             affected.append(rel)
     else:
-        print("  SKIP    package.json (not found)")
+        if not quiet:
+            print("  SKIP    package.json (not found)")
 
     return affected
 
@@ -192,12 +207,24 @@ if __name__ == "__main__":
         action="store_true",
         help="Read-only drift check. Exit 0 if clean, 1 if any file drifted.",
     )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit JSON output (requires --check). Exit 0 if clean, 1 if drift.",
+    )
     args = parser.parse_args()
 
-    drifted = sync(check_only=args.check)
+    if args.json and not args.check:
+        print("ERROR: --json requires --check", file=sys.stderr)
+        sys.exit(2)
+
+    drifted: list = sync(check_only=args.check, quiet=args.json)
 
     if args.check:
+        if args.json:
+            _, clean = read_version()
+            print(_json.dumps({"version": clean, "drift": drifted}))
         if drifted:
             sys.exit(1)
-        else:
+        elif not args.json:
             print("sync_version --check: no drift")

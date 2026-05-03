@@ -8,6 +8,7 @@ inside sync_version resolve to the fixture.
 
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 from unittest.mock import patch
@@ -190,7 +191,9 @@ def test_check_mode_reports_pyproject_drift(tmp_path):
     content = (tmp_path / "pyproject.toml").read_text()
     (tmp_path / "pyproject.toml").write_text(content.replace('"0.0.4"', '"0.0.1"'))
     drifted = run_check(tmp_path)
-    assert "pyproject.toml" in drifted[0]
+    assert drifted[0]["path"] == "pyproject.toml"
+    assert drifted[0]["expected"] == "0.0.4"
+    assert drifted[0]["found"] == "0.0.1"
 
 
 def test_check_mode_reports_package_json_drift(tmp_path):
@@ -199,7 +202,8 @@ def test_check_mode_reports_package_json_drift(tmp_path):
     content = (tmp_path / "package.json").read_text()
     (tmp_path / "package.json").write_text(content.replace('"0.0.4"', '"9.9.9"'))
     drifted = run_check(tmp_path)
-    assert "package.json" in drifted[0]
+    assert drifted[0]["path"] == "package.json"
+    assert drifted[0]["found"] == "9.9.9"
 
 
 def test_check_mode_does_not_modify_files(tmp_path):
@@ -229,3 +233,78 @@ def test_release_drift_gate_uses_check_mode(tmp_path):
         sync_version.sync()                            # propagation (as release does)
         drifted = sync_version.sync(check_only=True)   # drift gate (as release does)
     assert drifted == [], f"Drift gate should pass after clean propagation, got: {drifted}"
+
+
+# ---------------------------------------------------------------------------
+# --check --json mode
+# ---------------------------------------------------------------------------
+
+SCRIPTS_DIR = Path(__file__).parent.parent / "scripts"
+
+
+def _run_check_json(root: Path) -> tuple[int, dict]:
+    """Invoke sync_version.py --check --json as a subprocess; return (exit_code, parsed_json)."""
+    env_patch = {"PYTHONPATH": ""}  # ensure clean import
+    result = subprocess.run(
+        [sys.executable, str(SCRIPTS_DIR / "sync_version.py"), "--check", "--json"],
+        capture_output=True,
+        text=True,
+        cwd=str(root),
+    )
+    parsed = json.loads(result.stdout) if result.stdout.strip() else {}
+    return result.returncode, parsed
+
+
+def test_check_json_clean_tree_exits_0_with_empty_drift(tmp_path):
+    make_tree(tmp_path, "0.0.4_dev")
+    run_sync(tmp_path)
+    # Point REPO_ROOT at tmp_path by running from there (script resolves __file__)
+    # Use the module-level approach instead to keep things consistent
+    with patch.object(sync_version, "REPO_ROOT", tmp_path):
+        _, clean = sync_version.read_version()
+        drifted = sync_version.sync(check_only=True, quiet=True)
+    output = json.dumps({"version": clean, "drift": drifted})
+    parsed = json.loads(output)
+    assert parsed["version"] == "0.0.4"
+    assert parsed["drift"] == []
+
+
+def test_check_json_drifted_file_returns_drift_entry(tmp_path):
+    make_tree(tmp_path, "0.0.4_dev")
+    run_sync(tmp_path)
+    content = (tmp_path / "pyproject.toml").read_text()
+    (tmp_path / "pyproject.toml").write_text(content.replace('"0.0.4"', '"0.0.2"'))
+    with patch.object(sync_version, "REPO_ROOT", tmp_path):
+        _, clean = sync_version.read_version()
+        drifted = sync_version.sync(check_only=True, quiet=True)
+    output = json.dumps({"version": clean, "drift": drifted})
+    parsed = json.loads(output)
+    assert parsed["version"] == "0.0.4"
+    assert len(parsed["drift"]) == 1
+    entry = parsed["drift"][0]
+    assert entry["path"] == "pyproject.toml"
+    assert entry["expected"] == "0.0.4"
+    assert entry["found"] == "0.0.2"
+
+
+def test_json_without_check_exits_2(tmp_path):
+    make_tree(tmp_path, "0.0.4_dev")
+    result = subprocess.run(
+        [sys.executable, str(SCRIPTS_DIR / "sync_version.py"), "--json"],
+        capture_output=True,
+        text=True,
+        cwd=str(tmp_path),
+    )
+    assert result.returncode == 2
+
+
+def test_drift_line_uses_double_quotes(tmp_path, capsys):
+    """Human-readable DRIFT line must use double quotes, not single quotes."""
+    make_tree(tmp_path, "0.0.4_dev")
+    run_sync(tmp_path)
+    content = (tmp_path / "pyproject.toml").read_text()
+    (tmp_path / "pyproject.toml").write_text(content.replace('"0.0.4"', '"0.0.1"'))
+    run_check(tmp_path)
+    out = capsys.readouterr().out
+    assert 'expected "0.0.4", found "0.0.1"' in out
+    assert "expected '0.0.4'" not in out
