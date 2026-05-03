@@ -289,6 +289,17 @@ See `docs/DEPLOYMENT.md` for the full operator guide and `docs/INSTALL.md` for e
 
 ---
 
+## Release Pipeline
+
+- `VERSION` is the single source of truth for version metadata. Never hand-edit version literals in any other file (`pyproject.toml`, `package.json`, etc.) — the release tooling propagates from `VERSION`.
+- During development, `VERSION` carries a `_dev` suffix (e.g. `0.0.4_dev`). Propagated files always carry the stripped version (e.g. `0.0.4`) — `_dev` is a marker on `VERSION` only.
+- `scripts/release.py <version>` is the release entry point: verifies `VERSION` currently reads `<target>_dev`, strips `_dev`, runs `sync_version.py`, runs the drift pre-flight check, commits. Does **not** push, tag, or create a GitHub release — those steps are manual, after human review.
+- `scripts/sync_version.py` propagates `VERSION` into the allowlist of version-bearing files (currently `pyproject.toml` and `package.json`). When adding a new file with a version literal, add it to the script's allowlist.
+- `scripts/sync_version.py --check` runs in read-only drift detection mode. Exits 0 (clean), 1 (drift), 2 (configuration error). `--check --json` produces structured output: `{"version": "...", "drift": [{"path": "...", "expected": "...", "found": "..."}]}`.
+- Drift tests live under `tests/` — no `tests/scripts/` split needed because matika's top-level `conftest.py` doesn't have heavyweight autouse fixtures.
+
+---
+
 ### Standing Rules
 - Always add unit tests for new functionality; update existing tests for changed behaviour.
 - All tests must pass with 0 skipped and 0 failed — no exceptions.
