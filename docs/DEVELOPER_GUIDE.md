@@ -53,7 +53,7 @@ uvicorn matika.main:app --host 127.0.0.1 --port 8000 --reload
 
 **What `MATIKA_ENV=development` does**
 
-When Matika is at a `_dev` version (e.g. `0.0.3_dev`) the strict version check would normally refuse any AppLug that declares the previous released version (e.g. `0.0.2`). Setting `MATIKA_ENV=development` strips the `_dev` suffix before comparing, so `0.0.3_dev` is treated as `0.0.3` — compatible with applugs declaring either `0.0.2` or `0.0.3`.
+When Matika is at a `_dev` version (e.g. `X.Y.Z_dev`) the strict version check would normally refuse any AppLug that does not declare that exact base version. Setting `MATIKA_ENV=development` strips the `_dev` suffix before comparing, so `X.Y.Z_dev` is treated as `X.Y.Z` — compatible with applugs declaring that base version.
 
 A warning is logged on every startup when this relaxation is active:
 ```
@@ -72,7 +72,7 @@ This only affects the version check. No other validation is relaxed.
 
 Every AppLug must declare the Matika version it was built and tested against:
 ```json
-{ "matika_version": "0.0.2" }
+{ "matika_version": "X.Y.Z" }
 ```
 
 **Production (strict matching)**
@@ -81,7 +81,7 @@ Every AppLug must declare the Matika version it was built and tested against:
 
 **Development (`MATIKA_ENV=development`)**
 
-The `_dev` suffix is stripped from the running version before comparing. An AppLug declaring `0.0.2` loads under Matika `0.0.3_dev` (treated as `0.0.3` for compatibility purposes — base version match is sufficient).
+The `_dev` suffix is stripped from the running version before comparing. An AppLug declaring `X.Y.Z` loads under Matika `X.Y.Z_dev` (treated as `X.Y.Z` for compatibility purposes — base version match is sufficient).
 
 Never publish an AppLug with a `_dev` value in `matika_version`. That field must always reference a released version.
 
