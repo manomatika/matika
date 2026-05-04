@@ -295,7 +295,9 @@ See `docs/DEPLOYMENT.md` for the full operator guide and `docs/INSTALL.md` for e
 - During development, `VERSION` carries a `_dev` suffix (e.g. `0.0.4_dev`). Propagated files always carry the stripped version (e.g. `0.0.4`) — `_dev` is a marker on `VERSION` only.
 - `scripts/release.py <version>` is the release entry point: verifies `VERSION` currently reads `<target>_dev`, strips `_dev`, runs `sync_version.py`, runs the drift pre-flight check, commits. Does **not** push, tag, or create a GitHub release — those steps are manual, after human review.
 - `scripts/sync_version.py` propagates `VERSION` into the allowlist of version-bearing files (currently `pyproject.toml` and `package.json`). When adding a new file with a version literal, add it to the script's allowlist.
-- `scripts/sync_version.py --check` runs in read-only drift detection mode. Exits 0 (clean), 1 (drift), 2 (configuration error). `--check --json` produces structured output: `{"version": "...", "drift": [{"path": "...", "expected": "...", "found": "..."}]}`.
+- `scripts/sync_version.py --check` runs in read-only drift detection mode. Exits 0 (clean), 1 (drift), 2 (configuration error). `--check --json` produces structured output: `{"version": "...", "drift": [{"path": "...", "expected": "...", "found": "..."}]}`. An empty `drift` array (`[]`) means clean.
+- Drift output uses double quotes around values, not single quotes (e.g. `DRIFT  pyproject.toml: expected "0.0.4", found "0.0.3"`).
+- matika's `VERSION` is the source of truth for downstream applugs declaring `matika_version`. EyeRate resolves matika's `VERSION` via sibling clone at `../matika` or the `MATIKA_VERSION` env var; if neither is available, eyerate's `sync_version.py` exits 2 (hard error, not a warning).
 - Drift tests live under `tests/` — no `tests/scripts/` split needed because matika's top-level `conftest.py` doesn't have heavyweight autouse fixtures.
 
 ---
@@ -311,3 +313,4 @@ See `docs/DEPLOYMENT.md` for the full operator guide and `docs/INSTALL.md` for e
 - Never run `rm -rf` on any directory.
 - Developer handles git staging and commits manually; do not stage or commit unless explicitly granted full git permissions for the session.
 - `MATIKA_ENV=development` must never be committed — it belongs only in the local `.env`.
+- Standard Python `.gitignore` (GitHub's official Python template) is in place: covers `__pycache__/`, build/dist, `*.egg-info/`, `.pytest_cache/`, `.coverage`, `htmlcov/`, venv variants, `.tox/`, and OS/IDE noise. Never commit compiled artifacts.
