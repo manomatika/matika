@@ -243,7 +243,7 @@ desktop.ini
 logs/
 # Node.js (frontend build)
 node_modules/
-package-lock.json
+# package-lock.json is committed — npm ci in CI requires it
 # Built frontend assets — committed to git so the repo is self-contained.
 # Run `npm run build` after editing any .ts file and commit the output alongside the source.
 # (Matches eyerate's pattern; Phase A.4 adds a pre-commit staleness check.)
