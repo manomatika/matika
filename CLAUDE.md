@@ -300,6 +300,43 @@ See `docs/DEPLOYMENT.md` for the full operator guide and `docs/INSTALL.md` for e
 - matika's `VERSION` is the source of truth for downstream applugs declaring `matika_version`. EyeRate resolves matika's `VERSION` via sibling clone at `../matika` or the `MATIKA_VERSION` env var; if neither is available, eyerate's `sync_version.py` exits 2 (hard error, not a warning).
 - Drift tests live under `tests/` — no `tests/scripts/` split needed because matika's top-level `conftest.py` doesn't have heavyweight autouse fixtures.
 
+### npm Package Publishing
+
+Matika's frontend is published to GitHub Packages as `@manomatika/matika-frontend`. Triggered automatically by tag pushes via `.github/workflows/publish-npm.yml`:
+
+- **Real releases:** pushing tag `v0.0.4` publishes `@manomatika/matika-frontend@0.0.4`.
+- **Prereleases:** pushing tag `v0.0.4-dev.0` publishes `@manomatika/matika-frontend@0.0.4-dev.0`. Used to let applugs integrate before the main version ships.
+
+The publish workflow reads the version from the git tag (not from VERSION or package.json), runs `npm run build`, and publishes using `GITHUB_TOKEN` with `packages: write` permission.
+
+**`package.json` version is a placeholder (`"0.0.0"`).** Never edit it manually — the workflow overrides it from the tag at publish time. `VERSION` (the Python release source of truth) and the npm tag are separate concerns: push a Python release tag to trigger both the PyPI/GitHub release flow and the npm publish.
+
+**Public API — `src/frontend/index.ts`** is the package entry point. Only symbols re-exported from `index.ts` are part of the public surface:
+
+| Export | Source | Purpose |
+|---|---|---|
+| `MaintenanceActivityManager` | `maintenance_activity.ts` | Base class for applug admin maintenance pages (browse + edit panel). Extend and override `getCreateUrl`, `getUpdateUrl`, `getDeleteUrl`. |
+| `ActivityMetadata` | `maintenance_activity.ts` | Type for the metadata object passed to `MaintenanceActivityManager`'s constructor. Describes browse columns and maintenance panel fields. |
+| `getCsrfToken()` | `csrf.ts` | Reads the CSRF token from the page's `<meta name="csrf-token">` tag. Use when constructing fetch() calls to matika endpoints. |
+| `injectCsrfToken(form)` | `csrf.ts` | Inserts a hidden `csrf_token` input into a form. Call this before any programmatic `form.submit()` — matika validates the token on every authenticated POST. Not needed for JSON-body fetch() calls. |
+
+Adding to or breaking the public API is a release-impacting change that requires a version bump.
+
+**To consume from an applug repo:**
+```bash
+# Configure npm scope (once per machine or in .npmrc):
+echo "@manomatika:registry=https://npm.pkg.github.com" >> ~/.npmrc
+# Authenticate with a GitHub PAT (read:packages scope) or GITHUB_TOKEN in CI:
+echo "//npm.pkg.github.com/:_authToken=<TOKEN>" >> ~/.npmrc
+
+npm install @manomatika/matika-frontend
+```
+
+Then in TypeScript:
+```typescript
+import { MaintenanceActivityManager, ActivityMetadata } from '@manomatika/matika-frontend';
+```
+
 ---
 
 ### Standing Rules

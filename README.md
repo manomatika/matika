@@ -60,6 +60,8 @@ A minimal AppLug requires:
 
 See [EyeRate](https://github.com/pjtallman/eyerate) for the reference implementation.
 
+The frontend TypeScript base classes (`MaintenanceActivityManager`, CSRF helpers) are published to GitHub Packages as **`@manomatika/matika-frontend`**. See [CLAUDE.md](CLAUDE.md) for consumption instructions and the full public API.
+
 ## Documentation
 
 | Document | Description |
