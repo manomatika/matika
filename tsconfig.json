@@ -10,7 +10,9 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "lib": ["DOM", "ES2016"],
-    "ignoreDeprecations": "6.0"
+    "ignoreDeprecations": "6.0",
+    "declaration": true,
+    "declarationMap": true
   },
   "include": ["src/frontend/**/*.ts"]
 }

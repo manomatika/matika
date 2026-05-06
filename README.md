@@ -1,4 +1,4 @@
-**Matika** | Version: **v0.0.2** | Copyright (c) 2026 Patrick James Tallman
+**Matika** | Version: **v0.0.4** | Copyright (c) 2026 Patrick James Tallman
 
 
 # Matika — Dynamic AppLug Framework
@@ -26,7 +26,7 @@ Matika is a high-performance, plugin-agnostic framework built with **FastAPI** a
 [SQLite (dev) | PostgreSQL/MySQL (production)]
 ```
 
-See [Architecture Overview](doc/ARCHITECTURE.md) for the full technical design.
+See [Architecture Overview](docs/ARCHITECTURE.md) for the full technical design.
 
 ## Quick Start
 
@@ -60,13 +60,15 @@ A minimal AppLug requires:
 
 See [EyeRate](https://github.com/pjtallman/eyerate) for the reference implementation.
 
+The frontend TypeScript base classes (`MaintenanceActivityManager`, CSRF helpers) are published to GitHub Packages as **`@manomatika/matika-frontend`**. See [CLAUDE.md](CLAUDE.md) for consumption instructions and the full public API.
+
 ## Documentation
 
 | Document | Description |
 |---|---|
-| [INSTALL.md](doc/INSTALL.md) | Step-by-step installation for developers and end users |
-| [DEPLOYMENT.md](doc/DEPLOYMENT.md) | Production deployment, PostgreSQL setup, migrations, zero-downtime |
-| [ARCHITECTURE.md](doc/ARCHITECTURE.md) | Full technical architecture, persistence layer, security model |
+| [INSTALL.md](docs/INSTALL.md) | Step-by-step installation for developers and end users |
+| [DEPLOYMENT.md](docs/DEPLOYMENT.md) | Production deployment, PostgreSQL setup, migrations, zero-downtime |
+| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Full technical architecture, persistence layer, security model |
 
 ## License
 Copyright (c) 2026 Patrick James Tallman. All Rights Reserved.

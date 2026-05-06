@@ -1,4 +1,4 @@
-**Matika** | Version: **v0.0.2** | Copyright (c) 2026 Patrick James Tallman
+**Matika** | Version: **v0.0.4** | Copyright (c) 2026 Patrick James Tallman
 
 
 # Matika Technical Architecture & Design
@@ -26,7 +26,7 @@ The foundational rule of Matika is that the core repository must remain domain-a
 ├── .env.example            # Required environment variables (copy → .env)
 ├── alembic.ini             # Alembic configuration (DATABASE_URL set from env)
 ├── data/                   # Persistent storage (SQLite .db files)
-├── doc/                    # Technical documentation
+├── docs/                   # Technical documentation
 ├── migrations/             # Alembic versioned schema migrations
 │   └── versions/           # One file per migration revision
 ├── plugins/                # AppLug directory (empty in core repo; populated at deploy)

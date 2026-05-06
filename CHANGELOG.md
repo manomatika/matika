@@ -1,4 +1,4 @@
-**Matika** | Version: **v0.0.2** | Copyright (c) 2026 Patrick James Tallman
+**Matika** | Version: **v0.0.4** | Copyright (c) 2026 Patrick James Tallman
 
 # Changelog
 
@@ -6,7 +6,7 @@ All notable changes to Matika are documented here.
 
 ---
 
-## [Unreleased / 0.0.3_dev]
+## [Unreleased / 0.0.4_dev]
 
 ### Added
 - *(nothing yet)*

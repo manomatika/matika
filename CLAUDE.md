@@ -1,4 +1,4 @@
-**Matika** | Version: **v0.0.2** | Copyright (c) 2026 Patrick James Tallman
+**Matika** | Version: **v0.0.4** | Copyright (c) 2026 Patrick James Tallman
 
 # CLAUDE.md
 
@@ -21,7 +21,7 @@ cp plugins.dev.json.example plugins.dev.json
 # Edit plugins.dev.json, then run:
 python scripts/dev_setup.py
 ```
-`dev_setup.py` is idempotent — safe to run multiple times. It validates each path contains both `applug.json` and at least one `*_menu.json` before creating symlinks. `plugins.dev.json` is in `.gitignore` and is never committed.
+`dev_setup.py` is idempotent — safe to run multiple times. It validates each path contains both `applug.json` and at least one `*_menus.json` before creating symlinks. `plugins.dev.json` is in `.gitignore` and is never committed.
 
 ### Required Environment Variables
 ```bash
@@ -34,8 +34,8 @@ export $(cat .env | xargs)
 ```
 
 `MATIKA_ENV=development` — set this in your local `.env` to allow AppLugs that declare
-a released `matika_version` (e.g. `0.0.2`) to load when Matika is running at a `_dev`
-version (e.g. `0.0.3_dev`). This relaxes only the version check — no other validation
+a released `matika_version` (e.g. `X.Y.Z`) to load when Matika is running at a `_dev`
+version (e.g. `X.Y.Z_dev`). This relaxes only the version check — no other validation
 changes. Never set this in production. Never commit `.env`.
 
 ### Run the Development Server
@@ -87,7 +87,7 @@ Matika is a **plugin-agnostic FastAPI framework** — the core has zero knowledg
 | Layer | Path | Role |
 |---|---|---|
 | Plugin engine | `src/matika/core/applug_service.py` | Discovers, loads, and registers AppLugs; builds role menu cache at startup |
-| Menu loader | `src/matika/core/menu_loader.py` | `MenuLoaderService` — discovers and parses all `*_menu.json` files |
+| Menu loader | `src/matika/core/menu_loader.py` | `MenuLoaderService` — discovers and parses all `*_menus.json` files |
 | Auth | `src/matika/auth/` | bcrypt, JWT, OAuth; `dependencies.py` provides `login_required`, `validate_csrf` |
 | Database | `src/matika/database.py`, `models.py` | SQLAlchemy ORM; SQLite (dev) or PostgreSQL/MySQL (prod) |
 | Migrations | `migrations/` | Alembic versioned migrations for core schema only |
@@ -111,7 +111,7 @@ plugins.dev.json           ← per-developer config, gitignored
 scripts/dev_setup.py       ← validates + creates symlinks
 plugins/eyerate → /path/to/eyerate   ← result
 ```
-`dev_setup.py` validates each entry has `applug.json` AND at least one `*_menu.json` before symlinking. It is idempotent and handles broken/wrong-target symlinks interactively.
+`dev_setup.py` validates each entry has `applug.json` AND at least one `*_menus.json` before symlinking. It is idempotent and handles broken/wrong-target symlinks interactively.
 
 #### 2. Server deployment (git clone or `MATIKA_PLUGINS_DIR`)
 ```bash
@@ -130,7 +130,11 @@ Standalone `.dmg`/`.exe` built with PyInstaller. Bundles the framework + selecte
 #### AppLug contract
 Every plugin directory must contain:
 - `applug.json` — manifest: `id`, `version`, `name`, `matika_version` (required — exact Matika version this AppLug was built and tested against), optional `display_name`, `entry_point`, `permissions`
-- `<id>_menu.json` — at least one menu metadata file (schema v1.0)
+- `<id>_menus.json` — consolidated menu file (schema v1.0) with two optional top-level sections:
+  - `application` (optional) — an Application-type menu rendered as a dropdown in the plugin's hub
+  - `roles` (optional) — array of role menus; each entry has `role`, `id`, `label_key`, and `items`
+    - Admin role items: flat `Link` entries (no `Menu` wrapper)
+    - Other role items: `Menu` wrapper containing nested links (dropdown behavior)
 - Python class extending `BaseAppLug` with `on_load(db)` and `on_unload(db)`
 
 `matika_version` (required) is checked at startup by `BaseAppLug._validate_compatibility()`. If absent or mismatched the AppLug is refused and skipped — a clear `RuntimeError` is logged. This is the compatibility contract baseline introduced in Matika 0.0.2; no breaking changes to `BaseAppLug` or the plugin discovery contract from this version forward.
@@ -152,9 +156,9 @@ Menu data flows through two distinct phases:
 | Source | Path | Key |
 |---|---|---|
 | Core menus | `src/matika/menus/` | `"core"` |
-| Plugin menus | `plugins/<id>/<id>_menu.json` | `"<plugin_id>"` |
+| Plugin menus | `plugins/<id>/<id>_menus.json` | `"<plugin_id>"` |
 
-Only files matching `*_menu.json` are loaded. The service caches results after the first call (`load_all()` is lazy-cached; call `invalidate_cache()` to reset). Schema version `"1.0"` is enforced — files with other versions are skipped with a warning.
+Plugin menus are loaded via `load_applug_menus()`, which reads `*_menus.json` files (consolidated format). Core menus continue to use individual `*_menu.json` files. The service caches results after the first call (`load_all()` is lazy-cached; call `invalidate_cache()` to reset). Schema version `"1.0"` is enforced — files with other versions are skipped with a warning.
 
 #### Phase 2 — Context building (`AppLugService.get_menus_for_context`)
 
@@ -169,32 +173,54 @@ Selector ordering is fixed: `Default → (sep) → Favorites → (sep) → [Appl
 
 Hub ordering within each entry: plugin menus first → core non-System menus → core System (Help) menus last.
 
-**Role hubs** are built once at startup (`_build_role_menus(db)`) from the permissions database — not from static files. Every page where a role has `permission != NONE` becomes a link in that role's hub. This means role menus update automatically when permissions change (after server restart).
+**Role hubs** are built from the `roles` sections of `*_menus.json` files plus core Role-type menus (e.g. `admin_menu.json`). `_build_role_menus` is removed — role menus are static file-driven, not generated from the permissions database.
 
-#### `*_menu.json` schema v1.0
+**Admin dropdown** aggregates System menus and AppLug-contributed items. When two or more sources contribute items, `SectionHeader` items are injected to separate them. A single source never shows section headers.
+
+**`fresh_login` session flag** is set on login and cleared after the first page load. While set, the Default hub is always shown regardless of the user's saved preference — ensuring a consistent landing state after login.
+
+#### `*_menus.json` schema v1.0 (plugin consolidated format)
 
 ```json
 {
   "schema_version": "1.0",
-  "menus": [
+  "application": {
+    "id": "unique-id",
+    "label_key": "i18n_key",
+    "items": [
+      { "type": "Link",      "label_key": "k", "href": "/path", "open_new_tab": false },
+      { "type": "Menu",      "label_key": "k", "items": [ ... ] },
+      { "type": "Separator" }
+    ]
+  },
+  "roles": [
     {
-      "id": "unique-id",
+      "role": "Admin",
+      "id": "unique-role-id",
       "label_key": "i18n_key",
-      "type": "Application | Role | System | Favorites",
-      "roles": ["Admin"],        // optional — gates entire menu
       "items": [
-        { "type": "Link",      "label_key": "k", "href": "/path", "roles": ["Admin"], "open_new_tab": false },
-        { "type": "Menu",      "label_key": "k", "items": [ ... ] },
-        { "type": "Separator" }
+        { "type": "Link", "label_key": "k", "href": "/path" }
+      ]
+    },
+    {
+      "role": "User",
+      "id": "unique-role-id",
+      "label_key": "i18n_key",
+      "items": [
+        { "type": "Menu", "label_key": "section", "items": [
+          { "type": "Link", "label_key": "k", "href": "/path" }
+        ]}
       ]
     }
   ]
 }
 ```
 
-`MenuType.DEFAULT` is a **selector entry type**, not a menu type. No `*_menu.json` file ever has `type: "Default"`. Default is an aggregated view assembled at runtime.
+Both `application` and `roles` are optional — a plugin may provide one, both, or neither.
 
-Core menus: `admin_menu.json` (type `Role`) and `help_menu.json` (type `System`). System-type menus always render last in every hub.
+`MenuType.DEFAULT` is a **selector entry type**, not a menu type. Default is an aggregated view assembled at runtime.
+
+Core menus (`src/matika/menus/`) continue to use individual `*_menu.json` files with the `menus` array format. Core menus: `admin_menu.json` (type `Role`) and `help_menu.json` (type `System`). System-type menus always render last in every hub.
 
 #### `menus_data` JSON injected into every page
 
@@ -220,7 +246,7 @@ TypeScript reads these on `DOMContentLoaded`. Hub selection is persisted in `ses
 | Server deployment | Technical operators | `MATIKA_PLUGINS_DIR` or `plugins/` clones | Server `.env` / secrets manager |
 | End-user installer | Non-technical users | Bundled by vendor at build time | First-login password change |
 
-See `doc/DEPLOYMENT.md` for the full operator guide and `doc/INSTALL.md` for end-user and developer installation steps.
+See `docs/DEPLOYMENT.md` for the full operator guide and `docs/INSTALL.md` for end-user and developer installation steps.
 
 ---
 
@@ -263,10 +289,65 @@ See `doc/DEPLOYMENT.md` for the full operator guide and `doc/INSTALL.md` for end
 
 ---
 
+## Release Pipeline
+
+- `VERSION` is the single source of truth for version metadata. Never hand-edit version literals in any other file (`pyproject.toml`, `package.json`, etc.) — the release tooling propagates from `VERSION`.
+- During development, `VERSION` carries a `_dev` suffix (e.g. `0.0.4_dev`). Propagated files always carry the stripped version (e.g. `0.0.4`) — `_dev` is a marker on `VERSION` only.
+- `scripts/release.py <version>` is the release entry point: verifies `VERSION` currently reads `<target>_dev`, strips `_dev`, runs `sync_version.py`, runs the drift pre-flight check, commits. Does **not** push, tag, or create a GitHub release — those steps are manual, after human review.
+- `scripts/sync_version.py` propagates `VERSION` into the allowlist of version-bearing files (currently `pyproject.toml` and `package.json`). When adding a new file with a version literal, add it to the script's allowlist.
+- `scripts/sync_version.py --check` runs in read-only drift detection mode. Exits 0 (clean), 1 (drift), 2 (configuration error). `--check --json` produces structured output: `{"version": "...", "drift": [{"path": "...", "expected": "...", "found": "..."}]}`. An empty `drift` array (`[]`) means clean.
+- Drift output uses double quotes around values, not single quotes (e.g. `DRIFT  pyproject.toml: expected "0.0.4", found "0.0.3"`).
+- matika's `VERSION` is the source of truth for downstream applugs declaring `matika_version`. EyeRate resolves matika's `VERSION` via sibling clone at `../matika` or the `MATIKA_VERSION` env var; if neither is available, eyerate's `sync_version.py` exits 2 (hard error, not a warning).
+- Drift tests live under `tests/` — no `tests/scripts/` split needed because matika's top-level `conftest.py` doesn't have heavyweight autouse fixtures.
+
+### npm Package Publishing
+
+Matika's frontend is published to GitHub Packages as `@manomatika/matika-frontend`. Triggered automatically by tag pushes via `.github/workflows/publish-npm.yml`:
+
+- **Real releases:** pushing tag `v0.0.4` publishes `@manomatika/matika-frontend@0.0.4`.
+- **Prereleases:** pushing tag `v0.0.4-dev.0` publishes `@manomatika/matika-frontend@0.0.4-dev.0`. Used to let applugs integrate before the main version ships.
+
+The publish workflow reads the version from the git tag (not from VERSION or package.json), runs `npm run build`, and publishes using `GITHUB_TOKEN` with `packages: write` permission.
+
+**`package.json` version is a placeholder (`"0.0.0"`).** Never edit it manually — the workflow overrides it from the tag at publish time. `VERSION` (the Python release source of truth) and the npm tag are separate concerns: push a Python release tag to trigger both the PyPI/GitHub release flow and the npm publish.
+
+**Public API — `src/frontend/index.ts`** is the package entry point. Only symbols re-exported from `index.ts` are part of the public surface:
+
+| Export | Source | Purpose |
+|---|---|---|
+| `MaintenanceActivityManager` | `maintenance_activity.ts` | Base class for applug admin maintenance pages (browse + edit panel). Extend and override `getCreateUrl`, `getUpdateUrl`, `getDeleteUrl`. |
+| `ActivityMetadata` | `maintenance_activity.ts` | Type for the metadata object passed to `MaintenanceActivityManager`'s constructor. Describes browse columns and maintenance panel fields. |
+| `getCsrfToken()` | `csrf.ts` | Reads the CSRF token from the page's `<meta name="csrf-token">` tag. Use when constructing fetch() calls to matika endpoints. |
+| `injectCsrfToken(form)` | `csrf.ts` | Inserts a hidden `csrf_token` input into a form. Call this before any programmatic `form.submit()` — matika validates the token on every authenticated POST. Not needed for JSON-body fetch() calls. |
+
+Adding to or breaking the public API is a release-impacting change that requires a version bump.
+
+**To consume from an applug repo:**
+```bash
+# Configure npm scope (once per machine or in .npmrc):
+echo "@manomatika:registry=https://npm.pkg.github.com" >> ~/.npmrc
+# Authenticate with a GitHub PAT (read:packages scope) or GITHUB_TOKEN in CI:
+echo "//npm.pkg.github.com/:_authToken=<TOKEN>" >> ~/.npmrc
+
+npm install @manomatika/matika-frontend
+```
+
+Then in TypeScript:
+```typescript
+import { MaintenanceActivityManager, ActivityMetadata } from '@manomatika/matika-frontend';
+```
+
+---
+
 ### Standing Rules
 - Always add unit tests for new functionality; update existing tests for changed behaviour.
-- All tests must be green before declaring work done or moving to the next phase.
+- All tests must pass with 0 skipped and 0 failed — no exceptions.
 - Never hardcode `SECRET_KEY` — read from environment only.
 - Never modify the production DB during testing.
 - Flag best-practice violations before implementing; never silently comply.
 - EyeRate-specific dependencies (`yfinance`, `curl_cffi`) belong in `eyerate/requirements.txt`, not in Matika's `requirements.txt`.
+- Never run `git merge` — rebase or cherry-pick only.
+- Never run `rm -rf` on any directory.
+- Developer handles git staging and commits manually; do not stage or commit unless explicitly granted full git permissions for the session.
+- `MATIKA_ENV=development` must never be committed — it belongs only in the local `.env`.
+- Standard Python `.gitignore` (GitHub's official Python template) is in place: covers `__pycache__/`, build/dist, `*.egg-info/`, `.pytest_cache/`, `.coverage`, `htmlcov/`, venv variants, `.tox/`, and OS/IDE noise. Never commit compiled artifacts.

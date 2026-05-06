@@ -39,7 +39,9 @@ def _info(msg: str) -> None: print(f"     {msg}")
 
 
 def _has_menu_json(directory: Path) -> bool:
-    return any(directory.glob("*_menu.json"))
+    # Plugins use the consolidated *_menus.json format (plural).
+    # Core menus use individual *_menu.json files (singular) — not matched here.
+    return any(directory.glob("*_menus.json"))
 
 
 def _resolve_path(raw: str) -> Path:
