@@ -1,27 +1,33 @@
 {
-  "name": "matika",
-  "version": "0.0.4",
-  "description": "",
-  "main": "index.js",
-  "directories": {
-    "test": "tests"
+  "name": "@manomatika/matika-frontend",
+  "version": "0.0.0",
+  "description": "Frontend TypeScript primitives for Matika applugs",
+  "type": "module",
+  "main": "src/matika/static/js/index.js",
+  "module": "src/matika/static/js/index.js",
+  "types": "src/matika/static/js/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./src/matika/static/js/index.d.ts",
+      "import": "./src/matika/static/js/index.js"
+    }
   },
+  "files": [
+    "src/matika/static/js/**/*"
+  ],
   "scripts": {
-    "build": "tsc",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "tsc"
+  },
+  "private": false,
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com",
+    "access": "restricted"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/pjtallman/Matika.git"
+    "url": "git+https://github.com/manomatika/Matika.git"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs",
-  "bugs": {
-    "url": "https://github.com/pjtallman/Matika/issues"
-  },
-  "homepage": "https://github.com/pjtallman/Matika#readme",
+  "license": "UNLICENSED",
   "devDependencies": {
     "@types/node": "^25.6.0",
     "typescript": "^6.0.3"
