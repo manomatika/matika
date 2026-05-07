@@ -50,3 +50,27 @@ validation. Entries are listed newest-first.
   was not committed to the repository. Tag retained as audit breadcrumb;
   superseded by v0.0.4-dev.1 which committed the lockfile and republished
   successfully.
+
+## v0.0.3
+
+- **Date:** 2026-04-28
+- **Status:** published
+- **Artifact:** none (pre-RELEASES.md historical release)
+- **PRs:** (pre-RELEASES.md historical release)
+- **Summary:** Pre-RELEASES.md historical release. See git log for commit details.
+
+## v0.0.2
+
+- **Date:** 2026-04-27
+- **Status:** published
+- **Artifact:** none (pre-RELEASES.md historical release)
+- **PRs:** (pre-RELEASES.md historical release)
+- **Summary:** Pre-RELEASES.md historical release. See git log for commit details.
+
+## v0.0.1
+
+- **Date:** 2026-04-18
+- **Status:** published
+- **Artifact:** none (pre-RELEASES.md historical release)
+- **PRs:** (pre-RELEASES.md historical release)
+- **Summary:** Pre-RELEASES.md historical release. See git log for commit details.
