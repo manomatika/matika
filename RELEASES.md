@@ -12,6 +12,20 @@ validation. Entries are listed newest-first.
 
 ---
 
+## v0.0.4-dev.2
+
+- **Date:** 2026-05-07
+- **Status:** published
+- **Artifact:** `@manomatika/matika-frontend@0.0.4-dev.2` (GitHub Packages)
+- **PRs:** manomatika/matika#37
+- **Summary:** Adds the import map entry for `@manomatika/matika-frontend`
+  in matika's `base.html`. Applugs (eyerate first) can now import the
+  package via bare specifier; matika owns the URL mapping centrally so
+  applugs do not hardcode `/static/js/index.js`. Package contents are
+  unchanged from v0.0.4-dev.1 — the bump exists for ecosystem version
+  coherence under the convention that committed-tree changes get their
+  own prerelease-bumped tag.
+
 ## v0.0.4-dev.1
 
 - **Date:** 2026-05-06

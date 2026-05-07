@@ -307,7 +307,13 @@ See `docs/DEPLOYMENT.md` for the full operator guide and `docs/INSTALL.md` for e
 - Every git tag matching `vX.Y.Z` or `vX.Y.Z-PRERELEASE` MUST have an entry in `RELEASES.md`.
 - Every entry in `RELEASES.md` MUST correspond to an actual git tag — no orphan entries.
 
-**Entry format.** Each entry is an H2 heading whose exact text is the tag name (e.g. `## v0.0.4-dev.1`), followed by required fields: `Date` (ISO `YYYY-MM-DD`), `Status`, `Artifact`, `PRs`, `Summary`. Entries are listed newest-first. Cross-repo references inside `PRs` must be fully qualified (`manomatika/<repo>#N`); commit references use `manomatika/<repo>@<sha>`.
+**Entry format.** Each entry is an H2 heading whose exact text is the tag name (e.g. `## v0.0.4-dev.1`), followed by required fields: `Date` (ISO `YYYY-MM-DD`), `Status`, `Artifact`, `PRs`, `Summary`. Entries are listed newest-first. Cross-repo references inside `PRs` must be fully qualified — see "PRs field formats" below.
+
+**PRs field formats.** The `PRs` field accepts either of two reference forms:
+- **PR-style** (`manomatika/<repo>#N`) — the normal case. Example: `manomatika/matika#35` (used in `v0.0.4-dev.0`'s entry).
+- **Direct-commit** (`manomatika/<repo>@<sha>`) — legacy / emergency only, used when a tag-bearing commit landed without going through PR review. Example: `manomatika/matika@23de78d` (used in `v0.0.4-dev.1`'s entry — a direct-to-main lockfile fix).
+
+The convention going forward is PR-required: every tagged commit lands via PR. The direct-commit format remains valid for honestly recording historical exceptions, not as an ongoing escape hatch. Both formats validate cleanly under ahimsa's release-log validator (which checks tag↔entry presence only and does not parse the `PRs` field).
 
 **Status vocabulary.** `published` | `failed` | `superseded`. This is the closed initial vocabulary — do not invent new keywords without updating both this convention and ahimsa's validator in lockstep.
 
