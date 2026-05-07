@@ -300,6 +300,30 @@ See `docs/DEPLOYMENT.md` for the full operator guide and `docs/INSTALL.md` for e
 - matika's `VERSION` is the source of truth for downstream applugs declaring `matika_version`. EyeRate resolves matika's `VERSION` via sibling clone at `../matika` or the `MATIKA_VERSION` env var; if neither is available, eyerate's `sync_version.py` exits 2 (hard error, not a warning).
 - Drift tests live under `tests/` — no `tests/scripts/` split needed because matika's top-level `conftest.py` doesn't have heavyweight autouse fixtures.
 
+### RELEASES.md Convention
+
+`RELEASES.md` at repo root is the canonical log of every git tag pushed from this repository. The tag↔entry consistency rule is enforced by ahimsa's release-log validation:
+
+- Every git tag matching `vX.Y.Z` or `vX.Y.Z-PRERELEASE` MUST have an entry in `RELEASES.md`.
+- Every entry in `RELEASES.md` MUST correspond to an actual git tag — no orphan entries.
+
+**Entry format.** Each entry is an H2 heading whose exact text is the tag name (e.g. `## v0.0.4-dev.1`), followed by required fields: `Date` (ISO `YYYY-MM-DD`), `Status`, `Artifact`, `PRs`, `Summary`. Entries are listed newest-first. Cross-repo references inside `PRs` must be fully qualified (`manomatika/<repo>#N`); commit references use `manomatika/<repo>@<sha>`.
+
+**Status vocabulary.** `published` | `failed` | `superseded`. This is the closed initial vocabulary — do not invent new keywords without updating both this convention and ahimsa's validator in lockstep.
+
+**Failed-then-superseded rule.** When a tag is both failed AND later superseded, its `Status` is `superseded (by <successor-tag>)`, not `failed`. `Status` reflects current state; the original failure reason moves into the `Summary` as historical context. This avoids re-litigating each failed tag's status as the release log evolves.
+
+**Failed-tag breadcrumb rule.** Failed-publish tags are NEVER deleted from the repository. They remain as audit breadcrumbs. Their `RELEASES.md` entries persist even after supersession, with `Status` updated per the rule above.
+
+**Tagging discipline.**
+- Tags are pushed to the `main` branch HEAD after the entry-bearing PR has merged. The merge commit is what gets tagged.
+- Never tag a feature branch commit. Never tag before merge.
+- The convention "the entry must be present on the tagged commit" depends on this discipline — tagging a pre-merge commit would leave the tag pointing at a commit that does not contain its own `RELEASES.md` entry.
+
+**When the entry is added.**
+- For full releases (e.g. `v0.0.4`): the entry is added in the same commit that bumps `VERSION` from `<target>_dev` to `<target>` (i.e. the release-finalization commit produced by `scripts/release.py`).
+- For prereleases (e.g. `v0.0.4-dev.2`): `VERSION` is unchanged (prereleases are tag-only). The entry is added in the same commit that introduces the change being prereleased. The entry must be present on the commit that ends up tagged.
+
 ### npm Package Publishing
 
 Matika's frontend is published to GitHub Packages as `@manomatika/matika-frontend`. Triggered automatically by tag pushes via `.github/workflows/publish-npm.yml`:
