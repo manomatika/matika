@@ -330,6 +330,8 @@ The convention going forward is PR-required: every tagged commit lands via PR. T
 - For full releases (e.g. `v0.0.4`): the entry is added in the same commit that bumps `VERSION` from `<target>_dev` to `<target>` (i.e. the release-finalization commit produced by `scripts/release.py`).
 - For prereleases (e.g. `v0.0.4-dev.2`): `VERSION` is unchanged (prereleases are tag-only). The entry is added in the same commit that introduces the change being prereleased. The entry must be present on the commit that ends up tagged.
 
+**Historical-backfill exception.** Tags pushed before this convention was established (`v0.0.1`, `v0.0.2`, `v0.0.3`) carry minimal placeholder entries — `Status: published`, no `Artifact`, no `PRs` ref, identical Summary noting the pre-convention nature. This is informational, not a relaxation of the schema: every entry from `v0.0.4-dev.0` onward follows the full schema density, and future entries must too.
+
 ### npm Package Publishing
 
 Matika's frontend is published to GitHub Packages as `@manomatika/matika-frontend`. Triggered automatically by tag pushes via `.github/workflows/publish-npm.yml`:
