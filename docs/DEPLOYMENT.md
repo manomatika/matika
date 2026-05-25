@@ -42,7 +42,7 @@ MATIKA_PLUGINS_DIR=/opt/matika/plugins
 
 ```bash
 # 1. Clone core
-git clone https://github.com/pjtallman/Matika.git && cd Matika
+git clone https://github.com/manomatika/Matika.git && cd Matika
 
 # 2. Python environment
 uv venv && source .venv/bin/activate
@@ -56,12 +56,12 @@ npm install && npm run build
 # Option A: Use MATIKA_PLUGINS_DIR (recommended — keeps core repo clean)
 mkdir -p /opt/matika/plugins
 cd /opt/matika/plugins
-git clone https://github.com/pjtallman/eyerate.git eyerate
+git clone https://github.com/manomatika/EyeRate.git eyerate
 # Add to .env: MATIKA_PLUGINS_DIR=/opt/matika/plugins
 
 # Option B: Clone directly into plugins/ (simpler single-server setups)
 cd plugins/
-git clone https://github.com/pjtallman/eyerate.git eyerate
+git clone https://github.com/manomatika/EyeRate.git eyerate
 
 # 5. Environment
 cp .env.example .env
@@ -181,7 +181,7 @@ This section documents the full developer workflow for contributors and AppLug d
 ### One-time setup
 ```bash
 # Clone and enter the repo
-git clone https://github.com/pjtallman/Matika.git && cd Matika
+git clone https://github.com/manomatika/Matika.git && cd Matika
 
 # Python environment
 uv venv && source .venv/bin/activate
