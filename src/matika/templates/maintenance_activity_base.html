@@ -98,15 +98,14 @@
                             <label for="field-{{ field.name }}">{{ t[field.label_key] if t and field.label_key in t else field.name }}</label>
                             
                             {% if field.type == 'select' %}
+                                {% set _opts = (option_sources or {}).get(field.options_source) if field.options_source else None %}
                                 <select id="field-{{ field.name }}" name="{{ field.name }}" class="edit-input" {% if field.read_only %}disabled{% endif %}>
-                                    {% if field.options_source == 'security_types' and security_types %}
-                                        {% for st in security_types %}
-                                        <option value="{{ st }}">{{ st }}</option>
-                                        {% endfor %}
-                                    {% elif field.options_source == 'asset_classes' and asset_classes %}
-                                        <option value="">-- Select Asset Class --</option>
-                                        {% for ac in asset_classes %}
-                                        <option value="{{ ac }}">{{ ac }}</option>
+                                    {% if not field.required %}
+                                    <option value=""></option>
+                                    {% endif %}
+                                    {% if _opts %}
+                                        {% for opt in _opts %}
+                                        <option value="{{ opt }}">{{ opt }}</option>
                                         {% endfor %}
                                     {% endif %}
                                 </select>
