@@ -35,13 +35,19 @@ def dev_setup():
 # ---------------------------------------------------------------------------
 
 def _make_plugin(base: Path, name: str, *, menu: bool = True) -> Path:
-    """Create a minimal valid plugin directory."""
+    """Create a minimal valid plugin directory.
+
+    Plugins use the consolidated `*_menus.json` (plural) format with optional
+    top-level `application` / `roles` sections — see matika CLAUDE.md's
+    "AppLug contract". `dev_setup.py` validates presence of a file matching
+    `*_menus.json`; it does not parse the contents.
+    """
     p = base / name
     p.mkdir(parents=True)
     (p / "applug.json").write_text(json.dumps({"id": name, "version": "1.0"}))
     if menu:
-        (p / f"{name}_menu.json").write_text(
-            json.dumps({"schema_version": "1.0", "menus": []})
+        (p / f"{name}_menus.json").write_text(
+            json.dumps({"schema_version": "1.0"})
         )
     return p
 
