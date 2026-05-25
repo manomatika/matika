@@ -184,35 +184,37 @@ Hub ordering within each entry: plugin menus first → core non-System menus →
 ```json
 {
   "schema_version": "1.0",
-  "application": {
-    "id": "unique-id",
-    "label_key": "i18n_key",
-    "items": [
-      { "type": "Link",      "label_key": "k", "href": "/path", "open_new_tab": false },
-      { "type": "Menu",      "label_key": "k", "items": [ ... ] },
-      { "type": "Separator" }
-    ]
-  },
-  "roles": [
-    {
-      "role": "Admin",
-      "id": "unique-role-id",
+  "menus": {
+    "application": {
+      "id": "unique-id",
       "label_key": "i18n_key",
       "items": [
-        { "type": "Link", "label_key": "k", "href": "/path" }
+        { "type": "Link",      "label_key": "k", "href": "/path", "open_new_tab": false },
+        { "type": "Menu",      "label_key": "k", "items": [ ... ] },
+        { "type": "Separator" }
       ]
     },
-    {
-      "role": "User",
-      "id": "unique-role-id",
-      "label_key": "i18n_key",
-      "items": [
-        { "type": "Menu", "label_key": "section", "items": [
+    "roles": [
+      {
+        "role": "Admin",
+        "id": "unique-role-id",
+        "label_key": "i18n_key",
+        "items": [
           { "type": "Link", "label_key": "k", "href": "/path" }
-        ]}
-      ]
-    }
-  ]
+        ]
+      },
+      {
+        "role": "User",
+        "id": "unique-role-id",
+        "label_key": "i18n_key",
+        "items": [
+          { "type": "Menu", "label_key": "section", "items": [
+            { "type": "Link", "label_key": "k", "href": "/path" }
+          ]}
+        ]
+      }
+    ]
+  }
 }
 ```
 

@@ -7,6 +7,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
         step((generator = generator.apply(thisArg, _arguments || [])).next());
     });
 };
+import { getCsrfToken } from "./csrf.js";
 export class MaintenanceActivityManager {
     constructor(metadata) {
         this.metadata = metadata;
@@ -234,6 +235,7 @@ export class MaintenanceActivityManager {
                     formData.append(f.name, val);
                 }
             });
+            formData.append('csrf_token', getCsrfToken());
             try {
                 this.clearMessage();
                 const resp = yield fetch(url, {
@@ -261,9 +263,15 @@ export class MaintenanceActivityManager {
             if (!this.selectedRow || !confirm("Are you sure you want to delete this record?"))
                 return;
             const url = this.getDeleteUrl(this.selectedRow.getAttribute('data-id'));
+            const body = new URLSearchParams();
+            body.append('csrf_token', getCsrfToken());
             try {
                 this.clearMessage();
-                const resp = yield fetch(url, { method: 'POST' });
+                const resp = yield fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body
+                });
                 if (resp.ok) {
                     window.location.reload();
                 }

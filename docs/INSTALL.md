@@ -42,7 +42,7 @@ application vendor. No Python, Node.js, or technical knowledge is required.
 
 ```bash
 # 1. Clone
-git clone https://github.com/pjtallman/Matika.git
+git clone https://github.com/manomatika/Matika.git
 cd Matika
 
 # 2. Virtual environment
