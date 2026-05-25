@@ -1,3 +1,5 @@
+import { getCsrfToken } from "./csrf.js";
+
 export interface ActivityMetadata {
     browse_panel: {
         search_fields?: Array<{ name: string; label_key: string }>;
@@ -261,6 +263,7 @@ export class MaintenanceActivityManager {
                 formData.append(f.name, val);
             }
         });
+        formData.append('csrf_token', getCsrfToken());
 
         try {
             this.clearMessage();
@@ -287,9 +290,15 @@ export class MaintenanceActivityManager {
         if (!this.selectedRow || !confirm("Are you sure you want to delete this record?")) return;
         
         const url = this.getDeleteUrl(this.selectedRow.getAttribute('data-id')!);
+        const body = new URLSearchParams();
+        body.append('csrf_token', getCsrfToken());
         try {
             this.clearMessage();
-            const resp = await fetch(url, { method: 'POST' });
+            const resp = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body
+            });
             if (resp.ok) {
                 window.location.reload();
             } else {
