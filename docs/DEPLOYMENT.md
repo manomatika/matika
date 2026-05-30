@@ -130,7 +130,7 @@ PYTHONPATH=src alembic downgrade -1
 Alembic migrations. Plugins apply their own schema changes via `on_load()` →
 `create_all()` at startup.
 
-Plugin menu definitions (`*_menu.json`) are loaded by the `MenuLoaderService`
+Plugin menu definitions (`*_menus.json`) are loaded by the `MenuLoaderService`
 at startup. No database migration is required for menu changes. After adding or
 modifying a plugin's menu JSON, restart the server.
 

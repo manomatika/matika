@@ -39,7 +39,7 @@ The foundational rule of Matika is that the core repository must remain domain-a
 │       ├── core/           # AppLug service, menu loader, rate limiter, constants
 │       ├── data_mgmt/      # Export/Import logic
 │       ├── locales/        # Core translation JSON files (en, es)
-│       ├── menus/          # Core menu metadata files (admin_menu.json, help_menu.json)
+│       ├── menus/          # Core menu metadata files (admin_menus.json, help_menus.json)
 │       ├── metadata/       # Framework UI metadata
 │       ├── static/         # Compiled JS, CSS
 │       ├── templates/      # Jinja2 HTML templates
@@ -56,7 +56,7 @@ The framework's discovery and menu engine. It:
 - Scans `plugins/` for `applug.json` manifests and dynamically imports entry classes.
 - Auto-provisions roles and permissions from manifest declarations.
 - Delegates menu file loading to `MenuLoaderService` (see 5.3).
-- Builds the menu hub at request time from the in-memory menu cache. Role hubs are file-driven: each plugin's consolidated menu file contributes a `roles.<RoleName>` section, and core contributes any menu file declaring `type: "Role"` with the role name in its `roles` field. The previous `_build_role_menus(db)` mechanism, which queried the permissions database at startup to assemble per-role hubs, was removed in commit `5103e4a`; the file-driven mechanism landed in `8a6903c`.
+- Builds the menu hub at request time from the in-memory menu cache. Role hubs are file-driven: each plugin's `*_menus.json` contributes a `roles.<RoleName>` section, and core contributes role entries from `admin_menus.json`'s `roles` section. The previous `_build_role_menus(db)` mechanism was removed in `5103e4a`; the file-driven mechanism landed in `8a6903c` and was unified onto the consolidated schema in `ca7d7c6`.
 
 ### 5.2. Menu Hub System
 The navigation bar is divided into three zones:
@@ -71,14 +71,21 @@ The navigation bar is divided into three zones:
 
 **Menu types** (`MenuType` enum): `Default`, `Application`, `Role`, `System`, `Favorites`.
 
-**Default hub** shows one aggregated submenu per AppLug plus core menus; Help is always last. **Role hubs** are built from menu files on disk (not from the permissions database): for each role the user holds, the hub aggregates any core menu file declaring `type: "Role"` with that role name in its `roles` field, plus the matching `roles.<RoleName>` section of each plugin's consolidated menu file. The earlier DB-driven `_build_role_menus(db)` mechanism was removed in `5103e4a` and replaced by this file-driven path in `8a6903c`.
+**Default hub** shows one aggregated submenu per AppLug plus core menus; Help is always last. **Role hubs** are built from menu files on disk (not from the permissions database): for each role the user holds, the hub aggregates the matching `roles.<RoleName>` entry from `admin_menus.json` (core) plus each plugin's `roles.<RoleName>` section. The earlier DB-driven `_build_role_menus(db)` mechanism was removed in `5103e4a` and replaced by this file-driven path.
 
 ### 5.3. Menu Loader Service (`core/menu_loader.py`)
-Standalone, cacheable service that discovers and loads menu files from disk:
-- **Core menus:** `src/matika/menus/` — currently `admin_menu.json` (Role type, Admin) and `help_menu.json` (System type). These use the legacy singular `*_menu.json` filename with `menus` as a flat array of typed menu objects.
-- **Plugin menus:** `plugins/<id>/<id>_menus.json` — consolidated plural format with `menus` as an object containing `application` and/or `roles` sections.
+Standalone, cacheable service that discovers and loads `*_menus.json` files from disk via a single `load_menus()` method. Returns `{source_id: {"application": …, "roles": {role_name: entry}, "system": …}}` for all sources.
 
-> **Note — partial-migration state.** Core menus and plugin menus currently use two different filename conventions (`*_menu.json` vs `*_menus.json`) and two structurally different `menus` shapes (array vs object), even though both declare `schema_version: "1.0"`. This is residual from commit `8a6903c` ("feat: consolidated `*_menus.json` for applug menus"), which migrated applugs to the consolidated form and explicitly noted *"Core Role-type menus (admin_menu.json) unchanged"*. Unifying core onto the consolidated form is tracked in manomatika/matika#45.
+- **Core menus:** `src/matika/menus/` — `admin_menus.json` (roles section, Admin role entry) and `help_menus.json` (system section). Both files use the consolidated `*_menus.json` format with `menus` as an object. The loader merges all `*_menus.json` files found in the core directory into a single `"core"` result entry.
+- **Plugin menus:** `plugins/<id>/<id>_menus.json` — one file per plugin, same consolidated format; may contain `application`, `roles`, and/or `system` sections (all optional).
+
+All files declare `schema_version: "1.0"`. The `menus` object supports three optional section keys:
+
+| Key | Shape | Purpose |
+|---|---|---|
+| `application` | single dict | App-wide menu visible to all authenticated users |
+| `roles` | array of role entries | Per-role menus; each entry has a `role` field |
+| `system` | single dict | Framework-level menus rendered last in every hub (e.g. Help) |
 
 ### 5.4. Authentication & Security
 - **Session:** Starlette `SessionMiddleware` with `SameSite=Lax` cookies. Idle timeout (configurable) and absolute 30-day cap.
@@ -158,7 +165,7 @@ Matika follows cloud-native principles for horizontal scaling when deployed agai
 
 An AppLug must provide:
 1. `applug.json` — manifest with `id`, `version`, `name`, `matika_version`, (optional) `display_name`, `entry_point`, `permissions`
-2. `<id>_menus.json` — consolidated menu metadata (schema v1.0); see 5.3 for the schema shape
+2. `<id>_menus.json` — consolidated menu metadata (schema v1.0); `menus` object with optional `application`, `roles`, and `system` sections (see 5.3)
 3. A Python class extending `BaseAppLug` with `on_load(db)` and `on_unload(db)` methods
 
 All POST routes contributed by a plugin must include `check_page_permission` and `validate_csrf` dependencies to participate in the core security model.

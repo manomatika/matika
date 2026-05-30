@@ -1,15 +1,14 @@
 {
     "schema_version": "1.0",
-    "menus": [
-        {
+    "menus": {
+        "system": {
             "id": "core-help",
             "label_key": "menu_help",
-            "type": "System",
             "items": [
                 { "type": "Link",      "label_key": "item_show_log", "href": "/show-log", "open_new_tab": true },
                 { "type": "Separator" },
                 { "type": "Link",      "label_key": "item_about",    "href": "/about" }
             ]
         }
-    ]
+    }
 }

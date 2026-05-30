@@ -120,7 +120,7 @@ class TestProcessPlugin:
     def test_missing_menu_json_returns_skipped(self, tmp_path, dev_setup, monkeypatch):
         plugins_dir = tmp_path / "plugins"
         plugins_dir.mkdir()
-        # Plugin has applug.json but no *_menu.json
+        # Plugin has applug.json but no *_menus.json
         plugin_src = _make_plugin(tmp_path / "repos", "nomenu", menu=False)
 
         monkeypatch.setattr(dev_setup, "PLUGINS_DIR", plugins_dir)
