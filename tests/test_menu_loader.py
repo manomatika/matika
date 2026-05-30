@@ -190,137 +190,187 @@ class TestTranslateItems:
 
 class TestMenuLoaderService:
     def test_loads_core_menus(self):
+        """load_menus() returns core entry with admin role and system sections from real files."""
         core_dir = os.path.join(BASE_DIR, "src", "matika", "menus")
         loader = MenuLoaderService(core_menus_dir=core_dir, plugins_dir="/tmp/nonexistent")
-        result = loader.load_all()
+        result = loader.load_menus()
         assert "core" in result
-        core_ids = [m["id"] for m in result["core"]]
-        assert "core-admin" in core_ids
-        assert "core-help" in core_ids
+        assert result["core"]["roles"]["Admin"]["id"] == "core-admin"
+        assert result["core"]["system"]["id"] == "core-help"
 
     def test_loads_plugin_menu_files(self, tmp_path):
+        """load_menus() discovers *_menus.json in plugin directories."""
         plugin_dir = tmp_path / "plugins" / "myplugin"
         plugin_dir.mkdir(parents=True)
-        menu_data = {
+        menus_data = {
             "schema_version": "1.0",
-            "menus": [{"id": "my-menu", "label_key": "lk", "type": "Application", "items": []}],
+            "menus": {
+                "application": {"id": "my-app", "label_key": "lk", "items": []},
+            },
         }
-        (plugin_dir / "myplugin_menu.json").write_text(json.dumps(menu_data))
+        (plugin_dir / "myplugin_menus.json").write_text(json.dumps(menus_data))
 
         loader = MenuLoaderService(
             core_menus_dir="/tmp/nonexistent",
             plugins_dir=str(tmp_path / "plugins"),
         )
-        result = loader.load_all()
+        result = loader.load_menus()
         assert "myplugin" in result
-        assert result["myplugin"][0]["id"] == "my-menu"
+        assert result["myplugin"]["application"]["id"] == "my-app"
 
     def test_skips_unsupported_schema(self, tmp_path, caplog):
+        """load_menus() skips files with unsupported schema_version."""
         plugin_dir = tmp_path / "plugins" / "bad"
         plugin_dir.mkdir(parents=True)
-        bad_data = {"schema_version": "99.0", "menus": []}
-        (plugin_dir / "bad_menu.json").write_text(json.dumps(bad_data))
+        bad_data = {"schema_version": "99.0", "menus": {}}
+        (plugin_dir / "bad_menus.json").write_text(json.dumps(bad_data))
 
         loader = MenuLoaderService(
             core_menus_dir="/tmp/nonexistent",
             plugins_dir=str(tmp_path / "plugins"),
         )
-        result = loader.load_all()
+        result = loader.load_menus()
         assert "bad" not in result
 
     def test_skips_invalid_json(self, tmp_path):
+        """load_menus() skips files with invalid JSON."""
         plugin_dir = tmp_path / "plugins" / "broken"
         plugin_dir.mkdir(parents=True)
-        (plugin_dir / "broken_menu.json").write_text("not json {{{")
+        (plugin_dir / "broken_menus.json").write_text("not json {{{")
 
         loader = MenuLoaderService(
             core_menus_dir="/tmp/nonexistent",
             plugins_dir=str(tmp_path / "plugins"),
         )
-        result = loader.load_all()
+        result = loader.load_menus()
         assert "broken" not in result
 
     def test_missing_directories_return_empty(self):
+        """load_menus() returns {} when both directories are missing."""
         loader = MenuLoaderService(
             core_menus_dir="/tmp/nonexistent_core",
             plugins_dir="/tmp/nonexistent_plugins",
         )
-        result = loader.load_all()
+        result = loader.load_menus()
         assert result == {}
 
-    def test_load_all_returns_cached_result_on_second_call(self, tmp_path):
-        """Second call to load_all() returns the same object (cache hit)."""
+    def test_load_menus_returns_cached_result_on_second_call(self, tmp_path):
+        """Second call to load_menus() returns the same object (cache hit)."""
         plugin_dir = tmp_path / "plugins" / "plug"
         plugin_dir.mkdir(parents=True)
-        menu_data = {
+        menus_data = {
             "schema_version": "1.0",
-            "menus": [{"id": "p-menu", "label_key": "k", "type": "Application", "items": []}],
+            "menus": {"application": {"id": "p-app", "label_key": "k", "items": []}},
         }
-        (plugin_dir / "plug_menu.json").write_text(json.dumps(menu_data))
+        (plugin_dir / "plug_menus.json").write_text(json.dumps(menus_data))
 
         loader = MenuLoaderService(
             core_menus_dir="/tmp/nonexistent",
             plugins_dir=str(tmp_path / "plugins"),
         )
-        first = loader.load_all()
-        second = loader.load_all()
+        first = loader.load_menus()
+        second = loader.load_menus()
         assert first is second  # identical object — no re-read
 
     def test_invalidate_cache_forces_reload(self, tmp_path):
         """invalidate_cache() clears the cache so the next call re-reads from disk."""
         plugin_dir = tmp_path / "plugins" / "plug"
         plugin_dir.mkdir(parents=True)
-        menu_file = plugin_dir / "plug_menu.json"
-        menu_data = {
+        menus_file = plugin_dir / "plug_menus.json"
+        menus_data = {
             "schema_version": "1.0",
-            "menus": [{"id": "p1", "label_key": "k", "type": "Application", "items": []}],
+            "menus": {"application": {"id": "p1", "label_key": "k", "items": []}},
         }
-        menu_file.write_text(json.dumps(menu_data))
+        menus_file.write_text(json.dumps(menus_data))
 
         loader = MenuLoaderService(
             core_menus_dir="/tmp/nonexistent",
             plugins_dir=str(tmp_path / "plugins"),
         )
-        first = loader.load_all()
-        assert first["plug"][0]["id"] == "p1"
+        first = loader.load_menus()
+        assert first["plug"]["application"]["id"] == "p1"
 
         # Mutate on disk and invalidate
-        menu_data["menus"][0]["id"] = "p2"
-        menu_file.write_text(json.dumps(menu_data))
+        menus_data["menus"]["application"]["id"] = "p2"
+        menus_file.write_text(json.dumps(menus_data))
         loader.invalidate_cache()
 
-        second = loader.load_all()
-        assert second["plug"][0]["id"] == "p2"
+        second = loader.load_menus()
+        assert second["plug"]["application"]["id"] == "p2"
 
-    def test_core_help_menu_has_system_type(self):
-        """core-help menu must have type 'System' for hub ordering logic."""
+    def test_core_admin_section_is_present(self):
+        """core entry must have roles.Admin with id 'core-admin' for hub logic."""
         core_dir = os.path.join(BASE_DIR, "src", "matika", "menus")
         loader = MenuLoaderService(core_menus_dir=core_dir, plugins_dir="/tmp/nonexistent")
-        result = loader.load_all()
-        help_menu = next((m for m in result["core"] if m["id"] == "core-help"), None)
-        assert help_menu is not None
-        assert help_menu["type"] == "System"
+        result = loader.load_menus()
+        admin_entry = result["core"]["roles"].get("Admin")
+        assert admin_entry is not None
+        assert admin_entry["id"] == "core-admin"
 
-    def test_core_admin_menu_has_role_type(self):
-        """core-admin menu must have type 'Role' so it is not treated as Help."""
+    def test_core_system_section_is_present(self):
+        """core entry must have a system section with id 'core-help' for hub ordering logic."""
         core_dir = os.path.join(BASE_DIR, "src", "matika", "menus")
         loader = MenuLoaderService(core_menus_dir=core_dir, plugins_dir="/tmp/nonexistent")
-        result = loader.load_all()
-        admin_menu = next((m for m in result["core"] if m["id"] == "core-admin"), None)
-        assert admin_menu is not None
-        assert admin_menu["type"] == "Role"
+        result = loader.load_menus()
+        system = result["core"].get("system")
+        assert system is not None
+        assert system["id"] == "core-help"
 
     def test_help_menu_has_separator_between_items(self):
-        """core-help menu items must include a Separator between Show Log and About."""
+        """core system menu items must include a Separator between Show Log and About."""
         core_dir = os.path.join(BASE_DIR, "src", "matika", "menus")
         loader = MenuLoaderService(core_menus_dir=core_dir, plugins_dir="/tmp/nonexistent")
-        result = loader.load_all()
-        help_menu = next((m for m in result["core"] if m["id"] == "core-help"), None)
-        assert help_menu is not None
+        result = loader.load_menus()
+        system = result["core"]["system"]
+        assert system is not None
 
-        item_types = [i["type"] for i in help_menu["items"]]
+        item_types = [i["type"] for i in system["items"]]
         assert "Separator" in item_types
 
         sep_idx = item_types.index("Separator")
         assert sep_idx > 0, "Separator must not be the first item"
         assert sep_idx < len(item_types) - 1, "Separator must not be the last item"
+
+    def test_merges_multiple_core_menu_files(self, tmp_path):
+        """Core dir with two *_menus.json files is merged into a single 'core' entry."""
+        core_dir = tmp_path / "core"
+        core_dir.mkdir()
+        (core_dir / "admin_menus.json").write_text(json.dumps({
+            "schema_version": "1.0",
+            "menus": {
+                "roles": [{"role": "Admin", "id": "core-admin", "label_key": "menu_admin", "items": []}],
+            },
+        }))
+        (core_dir / "help_menus.json").write_text(json.dumps({
+            "schema_version": "1.0",
+            "menus": {
+                "system": {"id": "core-help", "label_key": "menu_help", "items": []},
+            },
+        }))
+
+        loader = MenuLoaderService(
+            core_menus_dir=str(core_dir),
+            plugins_dir="/tmp/nonexistent",
+        )
+        result = loader.load_menus()
+        assert "core" in result
+        assert result["core"]["roles"]["Admin"]["id"] == "core-admin"
+        assert result["core"]["system"]["id"] == "core-help"
+
+    def test_system_section_absent_for_plugin_without_it(self, tmp_path):
+        """Plugin with only application and roles sections has system=None in result."""
+        plugin_dir = tmp_path / "plugins" / "myplugin"
+        plugin_dir.mkdir(parents=True)
+        (plugin_dir / "myplugin_menus.json").write_text(json.dumps({
+            "schema_version": "1.0",
+            "menus": {
+                "application": {"id": "my-app", "label_key": "lk", "items": []},
+            },
+        }))
+
+        loader = MenuLoaderService(
+            core_menus_dir="/tmp/nonexistent",
+            plugins_dir=str(tmp_path / "plugins"),
+        )
+        result = loader.load_menus()
+        assert result["myplugin"]["system"] is None

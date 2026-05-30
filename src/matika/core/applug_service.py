@@ -200,42 +200,33 @@ class AppLugService:
                 "hubs":     { hub_id: [ menu_item, ... ], ... }
             }
         """
-        raw = self.menu_loader.load_all()
-        applug_menus = self.menu_loader.load_applug_menus()
+        all_menus = self.menu_loader.load_menus()
 
-        # ------ categorise core menus -------
-        # Admin menus: Role-type with "Admin" in roles — items become the
-        # System source in the aggregated Admin dropdown.
-        core_admin_menus = [
-            m for m in raw.get("core", [])
-            if m.get("type") == "Role" and "Admin" in m.get("roles", [])
-        ]
-        # System (Help) menus — rendered last in every hub.
-        core_system_menus = [
-            m for m in raw.get("core", []) if m.get("type") == "System"
-        ]
+        # ------ extract core menu sections -------
+        core_data = all_menus.get("core", {})
+        core_admin_role = core_data.get("roles", {}).get("Admin")   # Dict or None
+        core_system = core_data.get("system")                        # Dict or None
 
         # ------ admin dropdown label -------
         admin_label: str = t.get("menu_admin", "Admin")
-        if core_admin_menus:
-            admin_label = t.get(core_admin_menus[0]["label_key"], admin_label)
+        if core_admin_role:
+            admin_label = t.get(core_admin_role["label_key"], admin_label)
 
         # ------ system items (visible only to Admin role holders) -------
         system_items: List[Dict] = []
-        if "Admin" in user_roles:
-            for menu in core_admin_menus:
-                filtered = filter_items(menu.get("items", []), user_roles)
-                if filtered:
-                    system_items.extend(translate_items(filtered, t))
+        if "Admin" in user_roles and core_admin_role:
+            filtered = filter_items(core_admin_role.get("items", []), user_roles)
+            if filtered:
+                system_items.extend(translate_items(filtered, t))
 
-        # ------ translate core help menus -------
+        # ------ translate core help (system) menu -------
         translated_help_menus: List[Dict] = []
-        for menu in core_system_menus:
-            filtered = filter_items(menu.get("items", []), user_roles)
+        if core_system:
+            filtered = filter_items(core_system.get("items", []), user_roles)
             if filtered:
                 translated_help_menus.append({
-                    "id": menu["id"],
-                    "label": t.get(menu["label_key"], menu["label_key"]),
+                    "id": core_system["id"],
+                    "label": t.get(core_system["label_key"], core_system["label_key"]),
                     "type": "Menu",
                     "items": translate_items(filtered, t),
                 })
@@ -251,7 +242,7 @@ class AppLugService:
                 or plugin.manifest.get("name", plugin_id)
             )
 
-            app_section = applug_menus.get(plugin_id, {}).get("application")
+            app_section = all_menus.get(plugin_id, {}).get("application")
             if app_section:
                 filtered = filter_items(app_section.get("items", []), user_roles)
                 if filtered:
@@ -264,7 +255,7 @@ class AppLugService:
 
             # Admin role items collected only when the user holds the Admin role.
             if "Admin" in user_roles:
-                admin_entry = applug_menus.get(plugin_id, {}).get("roles", {}).get("Admin")
+                admin_entry = all_menus.get(plugin_id, {}).get("roles", {}).get("Admin")
                 if admin_entry:
                     filtered = filter_items(admin_entry.get("items", []), user_roles)
                     if filtered:
@@ -345,21 +336,18 @@ class AppLugService:
                 if admin_dd:
                     r_hub.append(admin_dd)
             else:
-                for menu in raw.get("core", []):
-                    if menu.get("type") != "Role":
-                        continue
-                    if role_name not in menu.get("roles", []):
-                        continue
-                    items = filter_items(menu.get("items", []), [role_name])
+                core_role_entry = all_menus.get("core", {}).get("roles", {}).get(role_name)
+                if core_role_entry:
+                    items = filter_items(core_role_entry.get("items", []), [role_name])
                     if items:
                         r_hub.append({
-                            "id": menu["id"],
-                            "label": t.get(menu["label_key"], menu["label_key"]),
+                            "id": core_role_entry["id"],
+                            "label": t.get(core_role_entry["label_key"], core_role_entry["label_key"]),
                             "type": "Menu",
                             "items": translate_items(items, t),
                         })
                 for pid in self.loaded_plugins:
-                    role_entry = applug_menus.get(pid, {}).get("roles", {}).get(role_name)
+                    role_entry = all_menus.get(pid, {}).get("roles", {}).get(role_name)
                     if not role_entry:
                         continue
                     items = filter_items(role_entry.get("items", []), user_roles)

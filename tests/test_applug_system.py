@@ -48,24 +48,6 @@ def mock_plugin(plugin_dir):
     with open(os.path.join(p_path, "applug.json"), "w") as f:
         json.dump(manifest, f)
 
-    # Legacy *_menu.json — still discovered by MenuLoaderService.load_all()
-    menu_data = {
-        "schema_version": "1.0",
-        "menus": [
-            {
-                "id": "test-main",
-                "label_key": "test_item",
-                "type": "Application",
-                "items": [
-                    {"type": "Link", "label_key": "test_item", "href": "/test/plugin/page"}
-                ]
-            }
-        ]
-    }
-    with open(os.path.join(p_path, "test_plugin_menu.json"), "w") as f:
-        json.dump(menu_data, f)
-
-    # Consolidated *_menus.json — used by load_applug_menus() for application hub
     menus_data = {
         "schema_version": "1.0",
         "menus": {
@@ -117,20 +99,19 @@ def test_plugin_entity_registration(plugin_dir, mock_plugin, db):
     assert plugin_perm is not None
     assert plugin_perm.level == PermissionLevel.READ
 
-def test_plugin_menu_loading(plugin_dir, mock_plugin, db):
-    """MenuLoaderService discovers *_menu.json files in plugin directories."""
+def test_load_menus_on_plugin_dir(plugin_dir, mock_plugin, db):
+    """MenuLoaderService.load_menus() discovers *_menus.json in plugin directories."""
     from matika.core.menu_loader import MenuLoaderService
     from matika.core.paths import BASE_DIR
 
     core_menus_dir = os.path.join(BASE_DIR, "src", "matika", "menus")
     loader = MenuLoaderService(core_menus_dir=core_menus_dir, plugins_dir=plugin_dir)
-    all_menus = loader.load_all()
+    result = loader.load_menus()
 
-    assert "test_plugin" in all_menus
-    plugin_menus = all_menus["test_plugin"]
-    assert len(plugin_menus) == 1
-    assert plugin_menus[0]["id"] == "test-main"
-    assert plugin_menus[0]["type"] == "Application"
+    assert "test_plugin" in result
+    plugin_data = result["test_plugin"]
+    assert plugin_data["application"] is not None
+    assert plugin_data["application"]["id"] == "test-main"
 
 def test_plugin_menus_in_context(plugin_dir, mock_plugin, db):
     """get_menus_for_context includes plugin in selector and hub via *_menus.json."""
@@ -614,7 +595,7 @@ def test_permission_file_without_menus_file_logs_warning(plugin_dir, db, monkeyp
 
     core_menus_dir = os.path.join(BASE_DIR, "src", "matika", "menus")
     loader = MenuLoaderService(core_menus_dir=core_menus_dir, plugins_dir=plugin_dir)
-    loader.load_applug_menus()
+    loader.load_menus()
 
     assert any("warn_plugin" in msg and "no *_menus.json" in msg for msg in captured), (
         f"Expected warning about missing *_menus.json. Captured: {captured}"
@@ -682,8 +663,8 @@ def test_filter_items_removes_role_restricted_items_from_role_hub(plugin_dir, db
     )
 
 
-def test_load_applug_menus_parses_application_and_roles(plugin_dir):
-    """load_applug_menus() correctly parses application and roles from *_menus.json."""
+def test_load_menus_parses_application_and_roles(plugin_dir):
+    """load_menus() correctly parses application and roles from a plugin *_menus.json."""
     p_path = os.path.join(plugin_dir, "parse_plugin")
     os.makedirs(p_path)
 
@@ -707,7 +688,7 @@ def test_load_applug_menus_parses_application_and_roles(plugin_dir):
     from matika.core.paths import BASE_DIR
     core_menus_dir = os.path.join(BASE_DIR, "src", "matika", "menus")
     loader = MenuLoaderService(core_menus_dir=core_menus_dir, plugins_dir=plugin_dir)
-    result = loader.load_applug_menus()
+    result = loader.load_menus()
 
     assert "parse_plugin" in result
     assert result["parse_plugin"]["application"]["id"] == "parse-app"
@@ -716,8 +697,8 @@ def test_load_applug_menus_parses_application_and_roles(plugin_dir):
     assert "User" not in result["parse_plugin"]["roles"]
 
 
-def test_load_applug_menus_returns_none_for_missing_application(plugin_dir):
-    """load_applug_menus() returns application=None when the section is absent."""
+def test_load_menus_returns_none_for_missing_application(plugin_dir):
+    """load_menus() returns application=None when the section is absent from a plugin file."""
     p_path = os.path.join(plugin_dir, "noapp_plugin")
     os.makedirs(p_path)
 
@@ -736,26 +717,23 @@ def test_load_applug_menus_returns_none_for_missing_application(plugin_dir):
     from matika.core.paths import BASE_DIR
     core_menus_dir = os.path.join(BASE_DIR, "src", "matika", "menus")
     loader = MenuLoaderService(core_menus_dir=core_menus_dir, plugins_dir=plugin_dir)
-    result = loader.load_applug_menus()
+    result = loader.load_menus()
 
     assert result["noapp_plugin"]["application"] is None
 
 
-def test_invalidate_cache_clears_both_caches(plugin_dir):
-    """invalidate_cache() clears both the legacy and applug menu caches."""
+def test_invalidate_cache_clears_cache(plugin_dir):
+    """invalidate_cache() clears the unified menu cache."""
     from matika.core.menu_loader import MenuLoaderService
     from matika.core.paths import BASE_DIR
     core_menus_dir = os.path.join(BASE_DIR, "src", "matika", "menus")
     loader = MenuLoaderService(core_menus_dir=core_menus_dir, plugins_dir=plugin_dir)
 
-    loader.load_all()
-    loader.load_applug_menus()
+    loader.load_menus()
     assert loader._cache is not None
-    assert loader._applug_cache is not None
 
     loader.invalidate_cache()
     assert loader._cache is None
-    assert loader._applug_cache is None
 
 
 # ---------------------------------------------------------------------------
