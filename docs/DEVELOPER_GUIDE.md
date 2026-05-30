@@ -275,14 +275,15 @@ The consolidated menu file is the sole source of truth for all menus an AppLug c
 
 **Sections (all optional):**
 
-| Key | Purpose | Selector placement |
-|---|---|---|
-| `application` | App-wide menu visible to all authenticated users | Applications section |
-| `roles` | Per-role menus; each entry targets one role by name | Roles section (only if user holds that role) |
+| Key | Shape | Purpose | Selector placement |
+|---|---|---|---|
+| `application` | single dict | App-wide menu visible to all authenticated users | Applications section |
+| `roles` | array of role entries | Per-role menus; each entry targets one role by name | Roles section (only if user holds that role) |
+| `system` | single dict | Framework-level menu rendered last in every hub | Always visible (e.g. Help) |
 
 - `application` — omit if the AppLug needs no application menu
 - `roles` — omit if the AppLug contributes no role-specific menus; add as many role entries as needed
-- Future menu types just add a new key under `menus`
+- `system` — reserved for framework-level menus (Help, About). Core uses this for `help_menus.json`. AppLugs may omit it.
 
 **Full menu matrix (EyeRate as reference):**
 

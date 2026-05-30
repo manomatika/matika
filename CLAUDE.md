@@ -214,7 +214,7 @@ Menu data flows through two distinct phases:
 | Core menus | `src/matika/menus/` | `"core"` |
 | Plugin menus | `plugins/<id>/<id>_menus.json` | `"<plugin_id>"` |
 
-Plugin menus are loaded via `load_applug_menus()`, which reads `*_menus.json` files (consolidated format). Core menus continue to use individual `*_menu.json` files. The service caches results after the first call (`load_all()` is lazy-cached; call `invalidate_cache()` to reset). Schema version `"1.0"` is enforced — files with other versions are skipped with a warning.
+All menus are loaded via the unified `load_menus()` method, which reads `*_menus.json` files from both the core directory and plugin directories. The core directory may contain multiple `*_menus.json` files — their `menus` objects are merged into a single `"core"` result entry. The service caches results after the first call; call `invalidate_cache()` to reset. Schema version `"1.0"` is enforced — files with other versions are skipped with a warning.
 
 #### Phase 2 — Context building (`AppLugService.get_menus_for_context`)
 
@@ -229,13 +229,13 @@ Selector ordering is fixed: `Default → (sep) → Favorites → (sep) → [Appl
 
 Hub ordering within each entry: plugin menus first → core non-System menus → core System (Help) menus last.
 
-**Role hubs** are built from the `roles` sections of `*_menus.json` files plus core Role-type menus (e.g. `admin_menu.json`). `_build_role_menus` is removed — role menus are static file-driven, not generated from the permissions database.
+**Role hubs** are built from the `roles` sections of `*_menus.json` files. Core contributes role entries from `admin_menus.json`; plugins contribute from their own `*_menus.json`. `_build_role_menus` is removed — role menus are static file-driven, not generated from the permissions database.
 
 **Admin dropdown** aggregates System menus and AppLug-contributed items. When two or more sources contribute items, `SectionHeader` items are injected to separate them. A single source never shows section headers.
 
 **`fresh_login` session flag** is set on login and cleared after the first page load. While set, the Default hub is always shown regardless of the user's saved preference — ensuring a consistent landing state after login.
 
-#### `*_menus.json` schema v1.0 (plugin consolidated format)
+#### `*_menus.json` schema v1.0
 
 ```json
 {
@@ -269,16 +269,29 @@ Hub ordering within each entry: plugin menus first → core non-System menus →
           ]}
         ]
       }
-    ]
+    ],
+    "system": {
+      "id": "unique-id",
+      "label_key": "i18n_key",
+      "items": [
+        { "type": "Link", "label_key": "k", "href": "/path" }
+      ]
+    }
   }
 }
 ```
 
-Both `application` and `roles` are optional — a plugin may provide one, both, or neither.
+All three sections (`application`, `roles`, `system`) are optional — a source may provide any combination.
+
+| Section | Shape | Purpose |
+|---|---|---|
+| `application` | single dict | App-wide menu visible to all authenticated users |
+| `roles` | array of role entries | Per-role menus; each entry has a `role` field |
+| `system` | single dict | Framework-level menu rendered last in every hub (e.g. Help) |
 
 `MenuType.DEFAULT` is a **selector entry type**, not a menu type. Default is an aggregated view assembled at runtime.
 
-Core menus (`src/matika/menus/`) continue to use individual `*_menu.json` files with the `menus` array format. Core menus: `admin_menu.json` (type `Role`) and `help_menu.json` (type `System`). System-type menus always render last in every hub.
+Core menus (`src/matika/menus/`) use the same schema: `admin_menus.json` provides the `roles` section (Admin role entry); `help_menus.json` provides the `system` section (Help menu). System-type menus always render last in every hub.
 
 #### `menus_data` JSON injected into every page
 
