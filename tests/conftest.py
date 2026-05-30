@@ -12,6 +12,7 @@ else:
     os.environ["DATABASE_URL"] = f"sqlite:////{test_db_path.lstrip('/')}"
 
 os.environ.setdefault("SECRET_KEY", "test-only-secret-key-never-use-in-production")
+os.environ.pop("MATIKA_ENV", None)  # prevent ambient dev-mode from silently relaxing version checks
 
 from matika.database import get_db
 from matika.models import Base, User, UserSetting, SystemSetting, Role, user_roles

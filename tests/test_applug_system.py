@@ -312,8 +312,11 @@ def test_missing_matika_version_skips_plugin(plugin_dir, db):
     assert "no_ver_plugin" not in loaded_ids
 
 
-def test_mismatched_matika_version_skips_plugin(plugin_dir, db):
+def test_mismatched_matika_version_skips_plugin(plugin_dir, db, monkeypatch):
     """An applug.json with a matika_version that doesn't match running Matika is refused."""
+    monkeypatch.delenv("MATIKA_ENV", raising=False)
+    monkeypatch.setattr("matika.core.applug.get_matika_version", lambda: "0.0.4")
+
     p_path = os.path.join(plugin_dir, "bad_ver_plugin")
     os.makedirs(p_path)
     manifest = {
@@ -356,10 +359,13 @@ def test_correct_matika_version_loads_plugin(plugin_dir, db):
     assert "good_ver_plugin" in loaded_ids
 
 
-def test_validate_compatibility_error_message_is_informative(plugin_dir, db):
+def test_validate_compatibility_error_message_is_informative(plugin_dir, db, monkeypatch):
     """The RuntimeError from _validate_compatibility includes actionable text."""
     import pytest
     from matika.core.applug import BaseAppLug
+
+    monkeypatch.delenv("MATIKA_ENV", raising=False)
+    monkeypatch.setattr("matika.core.applug.get_matika_version", lambda: "0.0.4")
 
     class ConcretePlugin(BaseAppLug):
         def on_load(self, db): pass
