@@ -1,0 +1,13 @@
+#!/usr/bin/env sh
+npm run build
+
+if ! git diff --quiet src/matika/static/js/; then
+  echo ""
+  echo "ERROR: Compiled assets are stale."
+  echo "  The build regenerated JS files that are not staged for this commit."
+  echo "  Stage the updated assets and retry:"
+  echo "    git add src/matika/static/js/"
+  echo ""
+  git diff --name-only src/matika/static/js/
+  exit 1
+fi

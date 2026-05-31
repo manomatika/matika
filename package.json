@@ -16,7 +16,8 @@
     "src/matika/static/js/**/*"
   ],
   "scripts": {
-    "build": "tsc"
+    "build": "tsc",
+    "prepare": "husky || true"
   },
   "private": false,
   "publishConfig": {
@@ -30,6 +31,7 @@
   "license": "UNLICENSED",
   "devDependencies": {
     "@types/node": "^25.6.0",
+    "husky": "^9.1.7",
     "typescript": "^6.0.3"
   }
 }
