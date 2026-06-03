@@ -1,0 +1,15 @@
+{
+    "schema_version": "1.0",
+    "menus": {
+        "roles": [
+            {
+                "role": "Admin",
+                "id": "minimal-admin",
+                "label_key": "minimal_admin",
+                "items": [
+                    { "type": "Link", "label_key": "minimal_admin", "href": "/admin/minimal" }
+                ]
+            }
+        ]
+    }
+}
