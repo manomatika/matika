@@ -1,0 +1,7 @@
+{
+    "id": "minimal_applug",
+    "name": "Minimal AppLug",
+    "version": "1.0.0",
+    "matika_version": "0.0.4",
+    "entry_point": "minimal_applug.MinimalAppLug"
+}
