@@ -71,9 +71,14 @@ def cleanup_logs(db: Session, is_testing: bool):
             setting_name = retention_map.get(suffix)
             if not setting_name:
                 continue
-            
+
+            try:
+                file_date = datetime.strptime(date_str, "%Y%m%d")
+            except ValueError:
+                # Filename prefix is not a YYYYMMDD date — skip silently.
+                continue
+
             days = int(get_system_setting(db, setting_name, "10"))
-            file_date = datetime.strptime(date_str, "%Y%m%d")
             if (now - file_date).days >= days:
                 os.remove(os.path.join(LOG_DIR, filename))
                 logger.info(f"Deleted old log: {filename}")
