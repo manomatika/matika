@@ -1,0 +1,33 @@
+name: Create GitHub Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'      # real releases: v0.0.4, v0.0.5, ...
+      - 'v*.*.*-*'    # prereleases:   v0.0.4-dev.0, v0.0.4-rc.1, ...
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          NOTES_FILE="docs/release-notes/${TAG}.md"
+          if [ -f "${NOTES_FILE}" ]; then
+            gh release create "${TAG}" \
+              --title "Matika ${TAG}" \
+              --notes-file "${NOTES_FILE}"
+          else
+            FALLBACK_NOTES="## Matika ${TAG}"$'\n\n'"No release notes file found for this tag."
+            gh release create "${TAG}" \
+              --title "Matika ${TAG}" \
+              --notes "${FALLBACK_NOTES}"
+          fi
