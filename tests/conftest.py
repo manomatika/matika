@@ -6,6 +6,10 @@ from fastapi.testclient import TestClient
 
 # Must set these before importing app or database
 test_db_path = os.path.abspath(os.path.join("data", "test_matika.db"))
+# Ensure the test-DB parent directory exists before SQLite opens a connection.
+# On a clean checkout (fresh clone/worktree/CI) data/ may not exist yet, which
+# otherwise fails with "unable to open database file". Test-harness only.
+os.makedirs(os.path.dirname(test_db_path), exist_ok=True)
 if os.name == 'nt':
     os.environ["DATABASE_URL"] = f"sqlite:///{test_db_path}"
 else:
