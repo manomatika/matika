@@ -10,8 +10,8 @@ The ecosystem is three sibling repositories, **not** a single workspace:
 
 | Repo | Role |
 |---|---|
-| [`manomatika/Matika`](https://github.com/manomatika/Matika) | The framework — plugin-agnostic FastAPI host, RBAC, menu hub, security. Source of truth for the AppLug contract. |
-| [`manomatika/EyeRate`](https://github.com/manomatika/EyeRate) (and other applugs) | A plugin (AppLug). Lives in its own repo and runs *inside* matika at startup. Multiple applugs may coexist; eyerate is the reference example. |
+| [`manomatika/matika`](https://github.com/manomatika/matika) | The framework — plugin-agnostic FastAPI host, RBAC, menu hub, security. Source of truth for the AppLug contract. |
+| [`manomatika/eyerate`](https://github.com/manomatika/eyerate) (and other applugs) | A plugin (AppLug). Lives in its own repo and runs *inside* matika at startup. Multiple applugs may coexist; eyerate is the reference example. |
 | [`manomatika/ahimsa`](https://github.com/manomatika/ahimsa) | Build / validate / release tooling. Consumes tagged matika + applug releases via `recipe.json` and produces installers. Downstream of both. |
 
 In dev, the three repos are cloned as siblings (e.g. `~/dev/projects/matika`, `~/dev/projects/eyerate`, `~/dev/projects/ahimsa`). Matika discovers applugs at startup via a symlink under `plugins/` (created by `scripts/dev_setup.py` from `plugins.dev.json`) or via `MATIKA_PLUGINS_DIR`.
@@ -32,8 +32,8 @@ These steps run once. After the first run, `.venv/` exists, dependencies are ins
 
 ```bash
 # Clone the framework
-git clone https://github.com/manomatika/Matika.git
-cd Matika
+git clone https://github.com/manomatika/matika.git
+cd matika
 
 # Create the venv (one time only)
 uv venv

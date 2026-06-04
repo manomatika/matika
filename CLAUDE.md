@@ -35,8 +35,8 @@ This section captures the standing working rules across the manomatika ecosystem
 ### Repository ecosystem
 
 - **manomatika** is the GitHub org. Three repos compose the ecosystem:
-  - **manomatika/Matika** — the framework (plugin-agnostic FastAPI host)
-  - **manomatika/EyeRate** — the reference AppLug (financial security tracking)
+  - **manomatika/matika** — the framework (plugin-agnostic FastAPI host)
+  - **manomatika/eyerate** — the reference AppLug (financial security tracking)
   - **manomatika/ahimsa** — release / build / recipe-validation tooling
 - Local clones live at `~/dev/projects/<repo>/` (sibling directories). Additional worktrees for the same repo live at `~/dev/projects/<repo>-<branch>/`.
 

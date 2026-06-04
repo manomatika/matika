@@ -42,8 +42,8 @@ application vendor. No Python, Node.js, or technical knowledge is required.
 
 ```bash
 # 1. Clone
-git clone https://github.com/manomatika/Matika.git
-cd Matika
+git clone https://github.com/manomatika/matika.git
+cd matika
 
 # 2. Virtual environment
 uv venv

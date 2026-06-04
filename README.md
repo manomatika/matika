@@ -58,7 +58,7 @@ A minimal AppLug requires:
 | `<id>_menus.json` | Consolidated menu metadata (schema v1.0; sections: `application`, `roles`) |
 | Python class extending `BaseAppLug` | `on_load(db)` + `on_unload(db)` |
 
-See [EyeRate](https://github.com/manomatika/EyeRate) for the reference implementation.
+See [EyeRate](https://github.com/manomatika/eyerate) for the reference implementation.
 
 The frontend TypeScript base classes (`MaintenanceActivityManager`, CSRF helpers) are published to GitHub Packages as **`@manomatika/matika-frontend`**. See [CLAUDE.md](CLAUDE.md) for consumption instructions and the full public API.
 
