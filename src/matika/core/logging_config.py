@@ -8,9 +8,9 @@ from ..database import get_system_setting
 
 # --- LOGGING & ENVIRONMENT SETUP ---
 LOG_DIR = os.path.join(ROOT_DIR, os.environ.get("LOG_DIR", "logs"))
-ACTIVE_LOG = os.path.join(LOG_DIR, "Matika.log")
+ACTIVE_LOG = os.path.join(LOG_DIR, "matika.log")
 STARTUP_LOG = os.path.join(LOG_DIR, "startup.log")
-TEST_LOG = os.path.join(LOG_DIR, "test_Matika.log")
+TEST_LOG = os.path.join(LOG_DIR, "test_matika.log")
 
 if not os.path.exists(LOG_DIR):
     os.makedirs(LOG_DIR)
@@ -45,7 +45,7 @@ def rotate_logs(is_testing: bool):
     if is_testing:
         return
     today_str = datetime.now().strftime("%Y%m%d")
-    for active, suffix in [(ACTIVE_LOG, "Matika.log"), (STARTUP_LOG, "startup.log"), (TEST_LOG, "test_Matika.log")]:
+    for active, suffix in [(ACTIVE_LOG, "matika.log"), (STARTUP_LOG, "startup.log"), (TEST_LOG, "test_matika.log")]:
         archive = os.path.join(LOG_DIR, f"{today_str}_{suffix}")
         if os.path.exists(active) and not os.path.exists(archive):
             shutil.copy(active, archive)
@@ -57,9 +57,9 @@ def cleanup_logs(db: Session, is_testing: bool):
     if is_testing:
         return
     retention_map = {
-        "Matika.log": "app_log_retention",
+        "matika.log": "app_log_retention",
         "startup.log": "startup_log_retention",
-        "test_Matika.log": "test_log_retention"
+        "test_matika.log": "test_log_retention"
     }
     now = datetime.now()
     for filename in os.listdir(LOG_DIR):

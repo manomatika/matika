@@ -12,7 +12,7 @@
 # Notes:
 #   - This spec bundles Matika's static assets, templates, locales, menus, and
 #     the Alembic migration tree.  Plugins are NOT bundled here — they are
-#     extracted to ~/Matika/plugins/ by launcher.py on first run.
+#     extracted to ~/matika/plugins/ by launcher.py on first run.
 #   - The app icon is a PNG (matika_icon_128.png).  Swap for a platform-native
 #     .icns (macOS) or .ico (Windows) when those assets are available.
 

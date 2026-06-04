@@ -40,11 +40,11 @@ issues:
     labels: ["feature"]
     body: |
       launcher.py needs significant updates for the frozen app context:
-      - Generate and persist SECRET_KEY to ~/Matika/.env on first run
+      - Generate and persist SECRET_KEY to ~/matika/.env on first run
       - Run alembic upgrade head on first run
-      - Extract bundled plugins to ~/Matika/plugins/<name> on first run
-      - Set MATIKA_PLUGINS_DIR to ~/Matika/plugins/
-      - Gate first-run logic on ~/Matika/.initialized sentinel file
+      - Extract bundled plugins to ~/matika/plugins/<name> on first run
+      - Set MATIKA_PLUGINS_DIR to ~/matika/plugins/
+      - Gate first-run logic on ~/matika/.initialized sentinel file
       - Handle port 8000 conflict with clear user-facing error
       - Remove leftover RateEye artifacts (Sequoia-Ready comment etc.)
 

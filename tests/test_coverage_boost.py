@@ -21,12 +21,12 @@ def test_logging_rotation_and_cleanup(db):
 
 def test_cleanup_logs_skips_non_date_prefixed_filenames(db, tmp_path, monkeypatch):
     """Regression test for matika#40: cleanup_logs must not raise on filenames
-    whose prefix is not a YYYYMMDD date (e.g. test_Matika.log)."""
+    whose prefix is not a YYYYMMDD date (e.g. test_matika.log)."""
     import matika.core.logging_config as log_cfg
 
     # Plant a non-conforming filename that previously triggered a ValueError
-    # from datetime.strptime (e.g. "test_Matika.log" → date_str="test").
-    nonconforming = tmp_path / "test_Matika.log"
+    # from datetime.strptime (e.g. "test_matika.log" → date_str="test").
+    nonconforming = tmp_path / "test_matika.log"
     nonconforming.write_text("some log content")
 
     monkeypatch.setattr(log_cfg, "LOG_DIR", str(tmp_path))
