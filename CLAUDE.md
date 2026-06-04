@@ -371,37 +371,14 @@ See `docs/DEPLOYMENT.md` for the full operator guide and `docs/INSTALL.md` for e
 - matika's `VERSION` is the source of truth for downstream applugs declaring `matika_version`. EyeRate resolves matika's `VERSION` via sibling clone at `../matika` or the `MATIKA_VERSION` env var; if neither is available, eyerate's `sync_version.py` exits 2 (hard error, not a warning).
 - Drift tests live under `tests/` — no `tests/scripts/` split needed because matika's top-level `conftest.py` doesn't have heavyweight autouse fixtures.
 
-### RELEASES.md Convention
+### Release log & release notes (central log now lives in ahimsa)
 
-`RELEASES.md` at repo root is the canonical log of every git tag pushed from this repository. The tag↔entry consistency rule is enforced by ahimsa's release-log validation:
+**matika no longer has its own `RELEASES.md`** — it was deleted (manomatika/matika#58). The canonical, ecosystem-wide release log now lives in **manomatika/ahimsa** as a *generated* `RELEASES.md`, rendered from `release-log.yaml` (the human-edited source of truth) with `## <repo> <tag>` headings covering all three repos. matika's historical tag entries (`v0.0.1`–`v0.0.4-dev.2`, including the `superseded` breadcrumb for `v0.0.4-dev.0` and the direct-commit `@23de78d` PRs ref) were migrated verbatim into ahimsa's `release-log.yaml`.
 
-- Every git tag matching `vX.Y.Z` or `vX.Y.Z-PRERELEASE` MUST have an entry in `RELEASES.md`.
-- Every entry in `RELEASES.md` MUST correspond to an actual git tag — no orphan entries.
+- **To record/adjust a matika tag's log entry:** edit `release-log.yaml` **in the ahimsa repo** (records keyed `repo: matika`), then regenerate ahimsa's `RELEASES.md` (see ahimsa's CLAUDE.md "Release-Notes System & Central Release Log"). Do NOT recreate a `RELEASES.md` in matika.
+- **Status vocabulary, failed-then-superseded rule, breadcrumb rule, tagging discipline** (tag the merge commit, never a pre-merge commit) are unchanged — they now apply to the central log in ahimsa.
 
-**Entry format.** Each entry is an H2 heading whose exact text is the tag name (e.g. `## v0.0.4-dev.1`), followed by required fields: `Date` (ISO `YYYY-MM-DD`), `Status`, `Artifact`, `PRs`, `Summary`. Entries are listed newest-first. Cross-repo references inside `PRs` must be fully qualified — see "PRs field formats" below.
-
-**PRs field formats.** The `PRs` field accepts either of two reference forms:
-- **PR-style** (`manomatika/<repo>#N`) — the normal case. Example: `manomatika/matika#35` (used in `v0.0.4-dev.0`'s entry).
-- **Direct-commit** (`manomatika/<repo>@<sha>`) — legacy / emergency only, used when a tag-bearing commit landed without going through PR review. Example: `manomatika/matika@23de78d` (used in `v0.0.4-dev.1`'s entry — a direct-to-main lockfile fix).
-
-The convention going forward is PR-required: every tagged commit lands via PR. The direct-commit format remains valid for honestly recording historical exceptions, not as an ongoing escape hatch. Both formats validate cleanly under ahimsa's release-log validator (which checks tag↔entry presence only and does not parse the `PRs` field).
-
-**Status vocabulary.** `published` | `failed` | `superseded`. This is the closed initial vocabulary — do not invent new keywords without updating both this convention and ahimsa's validator in lockstep.
-
-**Failed-then-superseded rule.** When a tag is both failed AND later superseded, its `Status` is `superseded (by <successor-tag>)`, not `failed`. `Status` reflects current state; the original failure reason moves into the `Summary` as historical context. This avoids re-litigating each failed tag's status as the release log evolves.
-
-**Failed-tag breadcrumb rule.** Failed-publish tags are NEVER deleted from the repository. They remain as audit breadcrumbs. Their `RELEASES.md` entries persist even after supersession, with `Status` updated per the rule above.
-
-**Tagging discipline.**
-- Tags are pushed to the `main` branch HEAD after the entry-bearing PR has merged. The merge commit is what gets tagged.
-- Never tag a feature branch commit. Never tag before merge.
-- The convention "the entry must be present on the tagged commit" depends on this discipline — tagging a pre-merge commit would leave the tag pointing at a commit that does not contain its own `RELEASES.md` entry.
-
-**When the entry is added.**
-- For full releases (e.g. `v0.0.4`): the entry is added in the same commit that bumps `VERSION` from `<target>_dev` to `<target>` (i.e. the release-finalization commit produced by `scripts/release.py`).
-- For prereleases (e.g. `v0.0.4-dev.2`): `VERSION` is unchanged (prereleases are tag-only). The entry is added in the same commit that introduces the change being prereleased. The entry must be present on the commit that ends up tagged.
-
-**Historical-backfill exception.** Tags pushed before this convention was established (`v0.0.1`, `v0.0.2`, `v0.0.3`) carry minimal placeholder entries — `Status: published`, no `Artifact`, no `PRs` ref, identical Summary noting the pre-convention nature. This is informational, not a relaxation of the schema: every entry from `v0.0.4-dev.0` onward follows the full schema density, and future entries must too.
+**matika release notes (notes-only).** matika has a tag-triggered release job (`.github/workflows/release.yml`, `contents: write`) that creates a GitHub Release from `docs/release-notes/<tag>.md`. matika has no installer artifacts of its own; the notes **link to ahimsa's installer release**. If no per-tag notes file exists, a minimal body is emitted (Q3 fallback). Author `docs/release-notes/<tag>.md` in the same PR that finalizes the version.
 
 ### npm Package Publishing
 
