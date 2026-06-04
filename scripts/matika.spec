@@ -18,7 +18,7 @@ matika.spec — PyInstaller spec for the Matika standalone app.
           <name>/        — package directory
 
 The launcher extracts plugins from sys._MEIPASS/plugins/<name>/ to
-~/Matika/plugins/<name>/ at first run and adds their src/ to sys.path.
+~/matika/plugins/<name>/ at first run and adds their src/ to sys.path.
 Plugin source is bundled as DATA (not compiled to bytecode) so that
 __file__ resolves correctly at runtime from the extracted location.
 
@@ -127,9 +127,9 @@ if _migrations.exists():
 # Dynamic plugin bundling
 # ---------------------------------------------------------------------------
 # Plugin Python source is bundled as DATA (not via pathex/hiddenimports).
-# Rationale: plugins are extracted to ~/Matika/plugins/<name>/ at first run
+# Rationale: plugins are extracted to ~/matika/plugins/<name>/ at first run
 # and imported from there. Bundling source as data preserves __file__
-# semantics: os.path.dirname(plugin.__file__) resolves inside ~/Matika/plugins/,
+# semantics: os.path.dirname(plugin.__file__) resolves inside ~/matika/plugins/,
 # so relative paths to templates/, static/, locales/ all work correctly.
 #
 # The launcher (launcher.py) handles extraction and sys.path wiring.

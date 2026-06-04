@@ -18,7 +18,7 @@ BASE_DIR = get_base_dir()
 def get_writable_root():
     """Returns a writable directory for logs and data."""
     home_dir = os.path.expanduser("~")
-    app_folder = os.path.join(home_dir, "Matika")
+    app_folder = os.path.join(home_dir, "matika")
     
     # Ensure root folder and data subfolder exist
     if not os.path.exists(app_folder):
@@ -28,7 +28,7 @@ def get_writable_root():
     if not os.path.exists(data_folder):
         os.makedirs(data_folder, exist_ok=True)
 
-    # If running as a bundle, ALWAYS use ~/Matika
+    # If running as a bundle, ALWAYS use ~/matika
     if getattr(sys, 'frozen', False):
         return app_folder
 

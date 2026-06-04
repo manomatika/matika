@@ -4,11 +4,11 @@ launcher.py — PyInstaller entry point for the Matika frozen desktop app.
 Responsibilities
 ----------------
 1. First-run initialisation:
-   - Generate a secure SECRET_KEY and write it to ~/Matika/.env
+   - Generate a secure SECRET_KEY and write it to ~/matika/.env
    - Run ``alembic upgrade head`` to create the database schema
-   - Extract bundled plugins to ~/Matika/plugins/<name>/
+   - Extract bundled plugins to ~/matika/plugins/<name>/
    - Set MATIKA_PLUGINS_DIR so the app discovers the extracted plugins
-   - Write a sentinel file (~/Matika/.initialized) on success so init
+   - Write a sentinel file (~/matika/.initialized) on success so init
      is skipped on every subsequent launch
 
 2. Port-conflict detection:
@@ -17,7 +17,7 @@ Responsibilities
      silently.
 
 3. App launch:
-   - Load environment from ~/Matika/.env
+   - Load environment from ~/matika/.env
    - Start uvicorn with the Matika ASGI app
    - Open the default browser after a short delay
 
@@ -25,7 +25,7 @@ Path helpers
 ------------
 ``_bundle_path(*parts)``  → absolute path inside sys._MEIPASS (frozen) or
                             the repo root (development)
-``_data_dir()``           → ~/Matika  (always writable; created if absent)
+``_data_dir()``           → ~/matika  (always writable; created if absent)
 """
 
 from __future__ import annotations
@@ -60,8 +60,8 @@ def _bundle_path(*parts: str) -> str:
 
 
 def _data_dir() -> Path:
-    """Return (and create if necessary) the writable ~/Matika directory."""
-    d = Path.home() / "Matika"
+    """Return (and create if necessary) the writable ~/matika directory."""
+    d = Path.home() / "matika"
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -114,7 +114,7 @@ def _generate_secret_key(env_path: Path) -> None:
 def _run_alembic_upgrade(data_dir: Path) -> None:
     """Run ``alembic upgrade head`` to initialise the database schema.
 
-    The database lives at ~/Matika/data/matika.db and the DATABASE_URL
+    The database lives at ~/matika/data/matika.db and the DATABASE_URL
     environment variable is set accordingly before the subprocess call.
     """
     db_path = data_dir / "data" / "matika.db"
@@ -139,11 +139,11 @@ def _run_alembic_upgrade(data_dir: Path) -> None:
 
 
 def _extract_bundled_plugins(data_dir: Path) -> None:
-    """Copy plugins bundled inside the frozen app to ~/Matika/plugins/.
+    """Copy plugins bundled inside the frozen app to ~/matika/plugins/.
 
     Plugins are bundled under ``<bundle>/plugins/`` (see matika.spec).
     Each immediate subdirectory is a plugin; it is copied to
-    ``~/Matika/plugins/<name>/`` if not already present so that user
+    ``~/matika/plugins/<name>/`` if not already present so that user
     modifications made after first run are preserved.
     """
     bundle_plugins = Path(_bundle_path("plugins"))
@@ -166,10 +166,10 @@ def first_run_init(data_dir: Path) -> None:
     """Perform all one-time first-run initialisation steps.
 
     Steps:
-    1. Generate SECRET_KEY → ~/Matika/.env
+    1. Generate SECRET_KEY → ~/matika/.env
     2. Run alembic upgrade head
-    3. Extract bundled plugins → ~/Matika/plugins/
-    4. Write sentinel file ~/Matika/.initialized
+    3. Extract bundled plugins → ~/matika/plugins/
+    4. Write sentinel file ~/matika/.initialized
 
     Raises ``RuntimeError`` if any step fails; the sentinel is only written
     after all steps succeed so a partial init is retried on next launch.

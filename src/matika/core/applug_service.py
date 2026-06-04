@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 class AppLugService:
     """
     Discovery and Registration Engine for Matika AppLugs.
-    Scans ~/Matika/plugins/ for applug.json manifests.
+    Scans ~/matika/plugins/ for applug.json manifests.
     """
 
     def __init__(

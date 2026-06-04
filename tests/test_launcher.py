@@ -74,7 +74,7 @@ class TestDataDir:
         fake_home.mkdir()
         with mock.patch("pathlib.Path.home", return_value=fake_home):
             result = launcher._data_dir()
-        assert result == fake_home / "Matika"
+        assert result == fake_home / "matika"
         assert result.is_dir()
 
     def test_idempotent(self, tmp_path):

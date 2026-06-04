@@ -4,11 +4,11 @@ launcher.py — Matika standalone app launcher.
 Handles first-run initialization, port conflict detection, server startup,
 and browser open. Works in both frozen (PyInstaller) and dev modes.
 
-First-run initialization (frozen mode only, gated by ~/Matika/.initialized):
-  1. Generate SECRET_KEY → ~/Matika/.env (permissions 0600)
-  2. Extract bundled plugins from sys._MEIPASS/plugins/ → ~/Matika/plugins/
+First-run initialization (frozen mode only, gated by ~/matika/.initialized):
+  1. Generate SECRET_KEY → ~/matika/.env (permissions 0600)
+  2. Extract bundled plugins from sys._MEIPASS/plugins/ → ~/matika/plugins/
   3. Run alembic upgrade head (via Python API, works in frozen mode)
-  4. Write sentinel ~/Matika/.initialized only after all steps succeed
+  4. Write sentinel ~/matika/.initialized only after all steps succeed
 
 Port conflict: shows a native OS dialog and exits 1 if port 8000 is in use.
 
@@ -34,7 +34,7 @@ from threading import Thread
 # Constants
 # ---------------------------------------------------------------------------
 HOME_DIR             = Path.home()
-APP_DIR              = HOME_DIR / "Matika"
+APP_DIR              = HOME_DIR / "matika"
 LOG_FILE             = APP_DIR / "launcher.log"
 ENV_FILE             = APP_DIR / ".env"
 PLUGINS_INSTALL_DIR  = APP_DIR / "plugins"
@@ -45,7 +45,7 @@ PORT = 8000
 
 
 # ---------------------------------------------------------------------------
-# Logging — writes to ~/Matika/launcher.log; also prints in dev mode
+# Logging — writes to ~/matika/launcher.log; also prints in dev mode
 # ---------------------------------------------------------------------------
 _log_fh = None
 
@@ -125,7 +125,7 @@ def get_base_path() -> Path:
 # Environment loading (production only)
 # ---------------------------------------------------------------------------
 def load_env() -> None:
-    """Load ~/Matika/.env into os.environ. Only runs in frozen mode.
+    """Load ~/matika/.env into os.environ. Only runs in frozen mode.
 
     In dev mode the developer manages their own .env via the standard
     workflow (cp .env.example .env; export $(cat .env | ...)).
@@ -169,7 +169,7 @@ def setup_plugin_paths() -> None:
 # First-run initialization steps
 # ---------------------------------------------------------------------------
 def _generate_secret_key() -> None:
-    """Write a fresh SECRET_KEY to ~/Matika/.env with 0600 permissions."""
+    """Write a fresh SECRET_KEY to ~/matika/.env with 0600 permissions."""
     key = secrets.token_urlsafe(64)
     ENV_FILE.write_text(f"SECRET_KEY={key}\n")
     ENV_FILE.chmod(stat.S_IRUSR | stat.S_IWUSR)  # owner read/write only
@@ -177,7 +177,7 @@ def _generate_secret_key() -> None:
 
 
 def _extract_plugins(base_path: Path) -> None:
-    """Copy bundled plugins from the app bundle to ~/Matika/plugins/.
+    """Copy bundled plugins from the app bundle to ~/matika/plugins/.
 
     Uses shutil.copytree (never symlinks) because the bundle is read-only
     after code signing (M5). Copies are writable and inspectable.
@@ -232,7 +232,7 @@ def first_run_init(base_path: Path) -> None:
     Frozen mode only. Dev mode skips entirely — developers manage their
     environment manually per the CLAUDE.md workflow.
 
-    The sentinel ~/Matika/.initialized is written ONLY after every step
+    The sentinel ~/matika/.initialized is written ONLY after every step
     succeeds. A half-initialized state (e.g. crash during migration) leaves
     no sentinel, so the next launch retries from the beginning.
     """
@@ -302,7 +302,7 @@ if __name__ == "__main__":
             if _dev_src.is_dir() and str(_dev_src) not in sys.path:
                 sys.path.insert(0, str(_dev_src))
 
-        # Ensure ~/Matika/data/ exists (database lives here)
+        # Ensure ~/matika/data/ exists (database lives here)
         (APP_DIR / "data").mkdir(parents=True, exist_ok=True)
 
         # First-run init (frozen only, sentinel-gated)

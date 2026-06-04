@@ -62,7 +62,7 @@ def test_show_log(client, test_admin):
     
     # Create a dummy log file if it doesn't exist
     LOG_DIR = "logs"
-    ACTIVE_LOG = os.path.join(LOG_DIR, "Matika.log")
+    ACTIVE_LOG = os.path.join(LOG_DIR, "matika.log")
     os.makedirs(LOG_DIR, exist_ok=True)
     with open(ACTIVE_LOG, "w") as f:
         f.write("Test log line 1\nTest log line 2\n")

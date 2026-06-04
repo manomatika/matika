@@ -148,7 +148,7 @@ def create_app() -> FastAPI:
         log_map = {
             "app": (ACTIVE_LOG, "app_log_lines"),
             "startup": (STARTUP_LOG, "startup_log_lines"),
-            "test": (os.path.join(LOG_DIR, "test_Matika.log"), "test_log_lines"),
+            "test": (os.path.join(LOG_DIR, "test_matika.log"), "test_log_lines"),
         }
         path, setting = log_map.get(type, (ACTIVE_LOG, "app_log_lines"))
         if os.path.exists(path):
