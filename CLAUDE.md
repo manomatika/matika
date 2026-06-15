@@ -39,7 +39,7 @@ CLAUDE.md must never knowingly contain stale information. Whenever CLAUDE.md is 
 ### Repository ecosystem
 
 - **manomatika** is the GitHub org. The shipped PRODUCT is **ManoMatika** — a pinned *triple* of component versions (matika + eyerate + ahimsa), blessed by a single product release. The repos:
-  - **manomatika/manomatika** — PRODUCT AUTHORITY (being created separately). Owns the recipes, the audit log (`release-log.yaml` + `RELEASES.md`), the product release + single hosted installer binary, cross-component umbrella docs, the per-version manifest/BOM (pins each component by tag AND resolved SHA), and the QA gate.
+  - **manomatika/manomatika** — PRODUCT AUTHORITY. Owns the recipes, the audit log (`release-log.yaml` + `RELEASES.md`), the product release + single hosted installer binary, cross-component umbrella docs, the per-version manifest/BOM (pins each component by tag AND resolved SHA), and the QA gate.
   - **manomatika/matika** — the framework (plugin-agnostic FastAPI host). **This repo.** A component with self-scoped architecture docs and notes-only GitHub releases (no installer binaries).
   - **manomatika/eyerate** — the reference AppLug (financial security tracking). Component; notes-only releases.
   - **manomatika/ahimsa** — the recipe ENGINE: build / validation / release *mechanism* + recipe *schema*. Owns no recipes, no audit-log content, and hosts no product releases of its own.
@@ -378,12 +378,12 @@ See `docs/DEPLOYMENT.md` for the full operator guide and `docs/INSTALL.md` for e
 
 ### Release log & release notes (central log owned by `manomatika/manomatika`)
 
-**matika has no `RELEASES.md` of its own** — it was deleted (manomatika/matika#58). The canonical, ecosystem-wide release log is a *generated* `RELEASES.md`, rendered from `release-log.yaml` (the human-edited source of truth) with `## <repo> <tag>` headings covering all three component repos. In the target model that audit log is owned by **manomatika/manomatika**; **current divergence:** both files and the renderer still physically live in **manomatika/ahimsa** pending migration. matika's historical tag entries (`v0.0.1`–`v0.0.4-dev.2`, including the `superseded` breadcrumb for `v0.0.4-dev.0` and the direct-commit `@23de78d` PRs ref) were migrated verbatim into that `release-log.yaml`.
+**matika has no `RELEASES.md` of its own** — it was deleted (manomatika/matika#58). The canonical, ecosystem-wide release log is a *generated* `RELEASES.md`, rendered from `release-log.yaml` (the human-edited source of truth) with `## <repo> <tag>` headings covering all three component repos. That audit log is owned by **manomatika/manomatika** — `release-log.yaml` and `RELEASES.md` live there, rendered by the engine in ahimsa. matika's historical tag entries (`v0.0.1`–`v0.0.4-dev.2`, including the `superseded` breadcrumb for `v0.0.4-dev.0` and the direct-commit `@23de78d` PRs ref) are records in that `release-log.yaml`.
 
-- **To record/adjust a matika tag's log entry:** edit `release-log.yaml` where it currently lives (the ahimsa repo today; records keyed `repo: matika`), then regenerate `RELEASES.md` (see ahimsa's CLAUDE.md "Release-Notes System & Central Release Log"). Do NOT recreate a `RELEASES.md` in matika.
+- **To record/adjust a matika tag's log entry:** edit `release-log.yaml` in `manomatika/manomatika` (records keyed `repo: matika`), then regenerate `RELEASES.md` (see ahimsa's CLAUDE.md "Release-Notes System & Central Release Log"). Do NOT recreate a `RELEASES.md` in matika.
 - **Status vocabulary, failed-then-superseded rule, breadcrumb rule, tagging discipline** (tag the merge commit, never a pre-merge commit) are unchanged — they apply to the central log wherever it is hosted.
 
-**matika release notes (notes-only).** matika has a tag-triggered release job (`.github/workflows/release.yml`, triggers on `v*.*.*` / `v*.*.*-*`, `contents: write`) that creates a GitHub Release from `docs/release-notes/<tag>.md`, with a minimal fallback body if no per-tag file exists. matika ships **no installer artifacts of its own**; the single hosted installer lives on the **manomatika/manomatika** product release (currently still produced by ahimsa's `build.yml` pending migration), and matika's notes link to it. Author `docs/release-notes/<tag>.md` in the same PR that finalizes the version.
+**matika release notes (notes-only).** matika has a tag-triggered release job (`.github/workflows/release.yml`, triggers on `v*.*.*` / `v*.*.*-*`, `contents: write`) that creates a GitHub Release from `docs/release-notes/<tag>.md`, with a minimal fallback body if no per-tag file exists. matika ships **no installer artifacts of its own**; the single hosted installer lives on the **manomatika/manomatika** product release (built by ahimsa's `build.yml`), and matika's notes link to it. Author `docs/release-notes/<tag>.md` in the same PR that finalizes the version.
 
 ### npm Package Publishing
 
