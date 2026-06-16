@@ -379,7 +379,11 @@ def test_validate_compatibility_error_message_is_informative(plugin_dir, db, mon
 
 
 # ---------------------------------------------------------------------------
-# MATIKA_ENV=development version check relaxation
+# Compare-on-core + general pre-release awareness
+#
+# The version ladder X.Y.Z-dev < X.Y.Z-rc.N < X.Y.Z all resolve to core X.Y.Z.
+# A pre-release runtime loads an AppLug pinned to its bare core. There is no
+# MATIKA_ENV escape hatch — compatibility is decided purely on the bare core.
 # ---------------------------------------------------------------------------
 
 class _ConcretePlugin(BaseAppLug):
@@ -387,44 +391,79 @@ class _ConcretePlugin(BaseAppLug):
     def on_unload(self, db): pass
 
 
-def test_dev_mode_dev_version_compatible_with_base_released_version(monkeypatch):
-    """MATIKA_ENV=development: 0.0.3_dev is compatible with applug declaring 0.0.2."""
-    monkeypatch.setenv("MATIKA_ENV", "development")
-    monkeypatch.setattr("matika.core.applug.get_matika_version", lambda: "0.0.3_dev")
-    plugin = _ConcretePlugin({"id": "p", "version": "1.0", "matika_version": "0.0.2"})
-    assert plugin.matika_version == "0.0.2"
-
-
-def test_dev_mode_dev_version_compatible_with_same_base_version(monkeypatch):
-    """MATIKA_ENV=development: 0.0.3_dev is compatible with applug declaring 0.0.3."""
-    monkeypatch.setenv("MATIKA_ENV", "development")
-    monkeypatch.setattr("matika.core.applug.get_matika_version", lambda: "0.0.3_dev")
+def test_dev_runtime_loads_applug_pinned_to_bare_core(monkeypatch):
+    """A -dev runtime (0.0.3-dev) loads an applug declaring its bare core 0.0.3."""
+    monkeypatch.setattr("matika.core.applug.get_matika_version", lambda: "0.0.3-dev")
     plugin = _ConcretePlugin({"id": "p", "version": "1.0", "matika_version": "0.0.3"})
     assert plugin.matika_version == "0.0.3"
 
 
-def test_strict_mode_dev_version_vs_released_refused(monkeypatch):
-    """MATIKA_ENV not set: 0.0.3_dev vs 0.0.2 raises RuntimeError."""
-    monkeypatch.delenv("MATIKA_ENV", raising=False)
-    monkeypatch.setattr("matika.core.applug.get_matika_version", lambda: "0.0.3_dev")
+def test_rc_runtime_loads_applug_pinned_to_bare_core(monkeypatch):
+    """An -rc.N runtime (0.0.3-rc.2) loads an applug declaring its bare core 0.0.3."""
+    monkeypatch.setattr("matika.core.applug.get_matika_version", lambda: "0.0.3-rc.2")
+    plugin = _ConcretePlugin({"id": "p", "version": "1.0", "matika_version": "0.0.3"})
+    assert plugin.matika_version == "0.0.3"
+
+
+def test_prerelease_runtime_with_different_core_refused(monkeypatch):
+    """0.0.3-dev (core 0.0.3) vs applug pinned to 0.0.2 raises — cores differ."""
+    monkeypatch.setattr("matika.core.applug.get_matika_version", lambda: "0.0.3-dev")
     with pytest.raises(RuntimeError, match="0.0.2"):
         _ConcretePlugin({"id": "p", "version": "1.0", "matika_version": "0.0.2"})
 
 
-def test_strict_mode_matching_released_version_passes(monkeypatch):
-    """MATIKA_ENV not set: exact match 0.0.2 == 0.0.2 loads without error."""
-    monkeypatch.delenv("MATIKA_ENV", raising=False)
+def test_final_runtime_matching_bare_core_passes(monkeypatch):
+    """Final runtime 0.0.2 vs applug declaring 0.0.2 loads without error."""
     monkeypatch.setattr("matika.core.applug.get_matika_version", lambda: "0.0.2")
     plugin = _ConcretePlugin({"id": "p", "version": "1.0", "matika_version": "0.0.2"})
     assert plugin.matika_version == "0.0.2"
 
 
-def test_non_development_env_enforces_strict_matching(monkeypatch):
-    """MATIKA_ENV=production: strict matching enforced even with _dev running version."""
-    monkeypatch.setenv("MATIKA_ENV", "production")
-    monkeypatch.setattr("matika.core.applug.get_matika_version", lambda: "0.0.3_dev")
+def test_final_runtime_mismatched_core_refused(monkeypatch):
+    """Final runtime 0.0.3 vs applug pinned to 0.0.2 raises — cores differ."""
+    monkeypatch.setattr("matika.core.applug.get_matika_version", lambda: "0.0.3")
     with pytest.raises(RuntimeError, match="0.0.2"):
         _ConcretePlugin({"id": "p", "version": "1.0", "matika_version": "0.0.2"})
+
+
+def test_applug_pinned_to_prerelease_compares_on_core(monkeypatch):
+    """Even if an applug erroneously pins a suffix, comparison is on bare core."""
+    monkeypatch.setattr("matika.core.applug.get_matika_version", lambda: "0.0.3")
+    plugin = _ConcretePlugin({"id": "p", "version": "1.0", "matika_version": "0.0.3-rc.1"})
+    assert plugin.matika_version == "0.0.3-rc.1"
+
+
+# ---------------------------------------------------------------------------
+# _validate_compatibility — explicit PERMISSIVE vs REJECT directions
+# (strict-parser pass: 0.0.4-rc.1 / 0.0.4-dev load applug pinned 0.0.4;
+#  0.0.5-rc.1 vs applug 0.0.4 raises)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("running", ["0.0.4-rc.1", "0.0.4-dev"])
+def test_validate_compatibility_permissive_prerelease_loads_bare_core(running, monkeypatch):
+    """PERMISSIVE: a pre-release runtime loads an applug pinned to its bare core."""
+    monkeypatch.setattr("matika.core.applug.get_matika_version", lambda: running)
+    plugin = _ConcretePlugin({"id": "p", "version": "1.0", "matika_version": "0.0.4"})
+    assert plugin.matika_version == "0.0.4"
+
+
+def test_validate_compatibility_reject_different_core_prerelease(monkeypatch):
+    """REJECT: running 0.0.5-rc.1 (core 0.0.5) vs applug pinned 0.0.4 raises."""
+    monkeypatch.setattr("matika.core.applug.get_matika_version", lambda: "0.0.5-rc.1")
+    with pytest.raises(RuntimeError, match="0.0.4"):
+        _ConcretePlugin({"id": "p", "version": "1.0", "matika_version": "0.0.4"})
+
+
+def test_validate_compatibility_surfaces_missing_version_error(monkeypatch):
+    """A missing/unreadable VERSION surfaces the specific paths.py error (RULE B),
+    NOT a re-swallowed sentinel and NOT a bare SemVer error."""
+    def _raise():
+        raise RuntimeError(
+            "Matika VERSION file missing or unreadable at /abs/path/VERSION: boom"
+        )
+    monkeypatch.setattr("matika.core.applug.get_matika_version", _raise)
+    with pytest.raises(RuntimeError, match="VERSION file missing or unreadable"):
+        _ConcretePlugin({"id": "p", "version": "1.0", "matika_version": "0.0.4"})
 
 # ---------------------------------------------------------------------------
 # Consolidated *_menus.json — full menu matrix

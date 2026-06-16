@@ -1,10 +1,9 @@
-import os
 import logging
 from abc import ABC, abstractmethod
 from fastapi import APIRouter
 from sqlalchemy.orm import Session
 from typing import Dict, Any, List
-from .paths import get_matika_version
+from .paths import get_matika_version, version_core, is_prerelease
 
 logger = logging.getLogger(__name__)
 
@@ -15,10 +14,11 @@ class BaseAppLug(ABC):
     Plugins must subclass this and implement the required methods.
 
     Required applug.json fields (enforced at construction time):
-      - matika_version: exact Matika version this AppLug was built and tested against.
-        Must match the running Matika version exactly, or the AppLug is refused at startup.
-        When MATIKA_ENV=development, a _dev suffix on the running version is stripped
-        before comparison so local development against released applugs works.
+      - matika_version: the bare-core (X.Y.Z) Matika framework version this AppLug
+        was built and tested against. Compared on CORE: the pre-release suffix
+        (e.g. -dev, -rc.N) is stripped from BOTH the running version and the
+        declared matika_version before equality. So a pre-release runtime such as
+        0.0.4-dev or 0.0.4-rc.1 loads an AppLug pinned to bare core 0.0.4.
     """
 
     def __init__(self, manifest: Dict[str, Any]):
@@ -33,36 +33,44 @@ class BaseAppLug(ABC):
 
     def _validate_compatibility(self) -> None:
         """
-        Validates that this AppLug's declared matika_version matches the running
-        Matika version. Raises RuntimeError on any mismatch so that AppLugService
-        can log the failure and skip the plugin gracefully.
+        Validates that this AppLug's declared matika_version is compatible with the
+        running Matika version. Comparison is on the bare CORE (X.Y.Z): the
+        pre-release suffix (-dev, -rc.N, ...) is stripped from BOTH the running
+        version and the declared matika_version before equality.
 
-        When MATIKA_ENV=development, a _dev suffix on the running version is stripped
-        before comparing. In all other environments strict exact matching is enforced.
+        This gives general pre-release awareness: a pre-release runtime such as
+        0.0.4-dev or 0.0.4-rc.1 is allowed to load an AppLug pinned to bare core
+        0.0.4 — they share the same core. There is no separate development escape
+        hatch; the ladder X.Y.Z-dev < X.Y.Z-rc.N < X.Y.Z all resolve to core X.Y.Z.
+
+        Raises RuntimeError on any core mismatch so that AppLugService can log the
+        failure and skip the plugin gracefully.
         """
         running = get_matika_version()
         if not self.matika_version:
             raise RuntimeError(
                 f"AppLug '{self.id}' is missing required field 'matika_version' in "
-                f"applug.json. Set it to the exact Matika version this AppLug was built "
-                f"and tested against (e.g. \"{running.removesuffix('_dev')}\")."
+                f"applug.json. Set it to the bare-core (X.Y.Z) Matika framework "
+                f"version this AppLug was built and tested against "
+                f"(e.g. \"{version_core(running)}\")."
             )
 
-        dev_mode = os.environ.get("MATIKA_ENV") == "development"
-        is_dev_version = running.endswith("_dev")
+        running_core = version_core(running)
+        declared_core = version_core(self.matika_version)
 
-        if dev_mode and is_dev_version:
-            logger.warning(
-                "Running in development mode — matika version check relaxed. "
-                "Never use in production."
-            )
-            return
-
-        if self.matika_version != running:
+        if declared_core != running_core:
             raise RuntimeError(
                 f"AppLug '{self.id}' declares matika_version='{self.matika_version}' "
-                f"but running Matika {running}. Update applug.json to match the "
-                f"installed Matika version before loading this AppLug."
+                f"(core {declared_core}) but running Matika {running} (core "
+                f"{running_core}). Update applug.json to match the installed Matika "
+                f"version core before loading this AppLug."
+            )
+
+        if is_prerelease(running):
+            logger.warning(
+                "Running Matika %s is a pre-release — AppLug '%s' loaded by core "
+                "match (%s). Never ship a pre-release runtime to production.",
+                running, self.id, running_core,
             )
 
     @abstractmethod

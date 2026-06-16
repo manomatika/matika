@@ -1,5 +1,5 @@
 milestone: "0.0.4 — Deployment and Install"
-version: "0.0.4_dev"
+version: "0.0.4-dev"
 branch: "feature/0.0.4-deployment-install"
 description: "Complete ahimsa recipe system, deployment pipeline, and single-click installer for macOS and Windows"
 

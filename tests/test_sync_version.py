@@ -68,7 +68,7 @@ def package_json_version(root: Path) -> str:
 # ---------------------------------------------------------------------------
 
 def test_dev_version_is_stripped_before_propagation(tmp_path):
-    make_tree(tmp_path, "0.0.4_dev")
+    make_tree(tmp_path, "0.0.4-dev")
     run_sync(tmp_path)
     assert pyproject_version(tmp_path) == "0.0.4"
     assert package_json_version(tmp_path) == "0.0.4"
@@ -82,12 +82,12 @@ def test_clean_version_propagates_unchanged(tmp_path):
 
 
 def test_dev_suffix_never_written_to_targets(tmp_path):
-    make_tree(tmp_path, "1.2.3_dev")
+    make_tree(tmp_path, "1.2.3-dev")
     run_sync(tmp_path)
     for filename in ("pyproject.toml", "package.json"):
-        assert "_dev" not in (tmp_path / filename).read_text(), (
-            f"_dev suffix found in {filename}"
-        )
+        content = (tmp_path / filename).read_text()
+        assert "-dev" not in content, f"-dev suffix found in {filename}"
+        assert "1.2.3" in content, f"bare core not propagated to {filename}"
 
 
 # ---------------------------------------------------------------------------
@@ -95,7 +95,7 @@ def test_dev_suffix_never_written_to_targets(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_sync_is_idempotent(tmp_path):
-    make_tree(tmp_path, "0.0.4_dev")
+    make_tree(tmp_path, "0.0.4-dev")
     run_sync(tmp_path)
     before_py = (tmp_path / "pyproject.toml").read_text()
     before_pkg = (tmp_path / "package.json").read_text()
@@ -106,7 +106,7 @@ def test_sync_is_idempotent(tmp_path):
 
 
 def test_sync_returns_empty_list_when_already_current(tmp_path):
-    make_tree(tmp_path, "0.0.4_dev")
+    make_tree(tmp_path, "0.0.4-dev")
     run_sync(tmp_path)
     written = run_sync(tmp_path)
     assert written == [], f"Expected no files written on second run, got: {written}"
@@ -117,14 +117,14 @@ def test_sync_returns_empty_list_when_already_current(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_sync_skips_missing_package_json(tmp_path):
-    make_tree(tmp_path, "0.0.4_dev")
+    make_tree(tmp_path, "0.0.4-dev")
     (tmp_path / "package.json").unlink()
     run_sync(tmp_path)
     assert pyproject_version(tmp_path) == "0.0.4"
 
 
 def test_sync_skips_missing_pyproject(tmp_path):
-    make_tree(tmp_path, "0.0.4_dev")
+    make_tree(tmp_path, "0.0.4-dev")
     (tmp_path / "pyproject.toml").unlink()
     run_sync(tmp_path)
     assert package_json_version(tmp_path) == "0.0.4"
@@ -135,21 +135,37 @@ def test_sync_skips_missing_pyproject(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_drift_check_passes_when_all_targets_match(tmp_path):
-    make_tree(tmp_path, "0.0.4_dev")
+    make_tree(tmp_path, "0.0.4-dev")
     run_sync(tmp_path)
     (tmp_path / "VERSION").write_text("0.0.4\n")
     run_drift_check(tmp_path, "0.0.4")  # must not raise or exit
 
 
 def test_drift_check_fails_when_version_has_dev(tmp_path):
-    make_tree(tmp_path, "0.0.4_dev")
+    make_tree(tmp_path, "0.0.4-dev")
     run_sync(tmp_path)
     with pytest.raises(SystemExit):
-        run_drift_check(tmp_path, "0.0.4")  # VERSION still has _dev
+        run_drift_check(tmp_path, "0.0.4")  # VERSION still carries -dev suffix
+
+
+def test_drift_check_fails_when_version_has_rc(tmp_path):
+    """drift_check rejects any pre-release suffix, not just -dev (e.g. -rc.N)."""
+    make_tree(tmp_path, "0.0.4-rc.1")
+    run_sync(tmp_path)
+    with pytest.raises(SystemExit):
+        run_drift_check(tmp_path, "0.0.4")  # VERSION still carries -rc.1 suffix
+
+
+def test_rc_version_core_propagates(tmp_path):
+    """An -rc.N VERSION propagates the bare core to all targets."""
+    make_tree(tmp_path, "0.0.4-rc.2")
+    run_sync(tmp_path)
+    assert pyproject_version(tmp_path) == "0.0.4"
+    assert package_json_version(tmp_path) == "0.0.4"
 
 
 def test_drift_check_fails_on_pyproject_mismatch(tmp_path):
-    make_tree(tmp_path, "0.0.4_dev")
+    make_tree(tmp_path, "0.0.4-dev")
     run_sync(tmp_path)
     (tmp_path / "VERSION").write_text("0.0.4\n")
     # Manually corrupt pyproject
@@ -160,7 +176,7 @@ def test_drift_check_fails_on_pyproject_mismatch(tmp_path):
 
 
 def test_drift_check_fails_on_package_json_mismatch(tmp_path):
-    make_tree(tmp_path, "0.0.4_dev")
+    make_tree(tmp_path, "0.0.4-dev")
     run_sync(tmp_path)
     (tmp_path / "VERSION").write_text("0.0.4\n")
     content = (tmp_path / "package.json").read_text()
@@ -179,14 +195,14 @@ def run_check(root: Path) -> list[str]:
 
 
 def test_check_mode_returns_empty_when_clean(tmp_path):
-    make_tree(tmp_path, "0.0.4_dev")
+    make_tree(tmp_path, "0.0.4-dev")
     run_sync(tmp_path)
     drifted = run_check(tmp_path)
     assert drifted == [], f"Expected no drift, got: {drifted}"
 
 
 def test_check_mode_reports_pyproject_drift(tmp_path):
-    make_tree(tmp_path, "0.0.4_dev")
+    make_tree(tmp_path, "0.0.4-dev")
     run_sync(tmp_path)
     content = (tmp_path / "pyproject.toml").read_text()
     (tmp_path / "pyproject.toml").write_text(content.replace('"0.0.4"', '"0.0.1"'))
@@ -197,7 +213,7 @@ def test_check_mode_reports_pyproject_drift(tmp_path):
 
 
 def test_check_mode_reports_package_json_drift(tmp_path):
-    make_tree(tmp_path, "0.0.4_dev")
+    make_tree(tmp_path, "0.0.4-dev")
     run_sync(tmp_path)
     content = (tmp_path / "package.json").read_text()
     (tmp_path / "package.json").write_text(content.replace('"0.0.4"', '"9.9.9"'))
@@ -207,7 +223,7 @@ def test_check_mode_reports_package_json_drift(tmp_path):
 
 
 def test_check_mode_does_not_modify_files(tmp_path):
-    make_tree(tmp_path, "0.0.4_dev")
+    make_tree(tmp_path, "0.0.4-dev")
     # Leave files at OLD — check mode must not fix them
     before_py = (tmp_path / "pyproject.toml").read_text()
     before_pkg = (tmp_path / "package.json").read_text()
@@ -217,10 +233,10 @@ def test_check_mode_does_not_modify_files(tmp_path):
 
 
 def test_check_mode_accepts_dev_version(tmp_path):
-    """--check must not fail just because VERSION carries _dev."""
-    make_tree(tmp_path, "0.0.4_dev")
+    """--check must not fail just because VERSION carries a pre-release suffix."""
+    make_tree(tmp_path, "0.0.4-dev")
     run_sync(tmp_path)
-    # VERSION still has _dev — check mode should be fine with that
+    # VERSION still has -dev — check mode should be fine with that
     drifted = run_check(tmp_path)
     assert drifted == []
 
@@ -228,7 +244,7 @@ def test_check_mode_accepts_dev_version(tmp_path):
 def test_release_drift_gate_uses_check_mode(tmp_path):
     """release.py calls sync(check_only=True) as its drift gate.
     Verify the gate returns no drift immediately after propagation."""
-    make_tree(tmp_path, "0.0.4_dev")
+    make_tree(tmp_path, "0.0.4-dev")
     with patch.object(sync_version, "REPO_ROOT", tmp_path):
         sync_version.sync()                            # propagation (as release does)
         drifted = sync_version.sync(check_only=True)   # drift gate (as release does)
@@ -256,7 +272,7 @@ def _run_check_json(root: Path) -> tuple[int, dict]:
 
 
 def test_check_json_clean_tree_exits_0_with_empty_drift(tmp_path):
-    make_tree(tmp_path, "0.0.4_dev")
+    make_tree(tmp_path, "0.0.4-dev")
     run_sync(tmp_path)
     # Point REPO_ROOT at tmp_path by running from there (script resolves __file__)
     # Use the module-level approach instead to keep things consistent
@@ -270,7 +286,7 @@ def test_check_json_clean_tree_exits_0_with_empty_drift(tmp_path):
 
 
 def test_check_json_drifted_file_returns_drift_entry(tmp_path):
-    make_tree(tmp_path, "0.0.4_dev")
+    make_tree(tmp_path, "0.0.4-dev")
     run_sync(tmp_path)
     content = (tmp_path / "pyproject.toml").read_text()
     (tmp_path / "pyproject.toml").write_text(content.replace('"0.0.4"', '"0.0.2"'))
@@ -288,7 +304,7 @@ def test_check_json_drifted_file_returns_drift_entry(tmp_path):
 
 
 def test_json_without_check_exits_2(tmp_path):
-    make_tree(tmp_path, "0.0.4_dev")
+    make_tree(tmp_path, "0.0.4-dev")
     result = subprocess.run(
         [sys.executable, str(SCRIPTS_DIR / "sync_version.py"), "--json"],
         capture_output=True,
@@ -300,7 +316,7 @@ def test_json_without_check_exits_2(tmp_path):
 
 def test_drift_line_uses_double_quotes(tmp_path, capsys):
     """Human-readable DRIFT line must use double quotes, not single quotes."""
-    make_tree(tmp_path, "0.0.4_dev")
+    make_tree(tmp_path, "0.0.4-dev")
     run_sync(tmp_path)
     content = (tmp_path / "pyproject.toml").read_text()
     (tmp_path / "pyproject.toml").write_text(content.replace('"0.0.4"', '"0.0.1"'))

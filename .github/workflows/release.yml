@@ -21,13 +21,23 @@ jobs:
         run: |
           TAG="${GITHUB_REF_NAME}"
           NOTES_FILE="docs/release-notes/${TAG}.md"
+
+          # Pre-release ladder: a tag carrying a suffix (v*-*, e.g. v0.0.4-dev.0
+          # or v0.0.4-rc.1) is a GitHub pre-release. A bare-core tag (v*.*.* with
+          # no suffix, e.g. v0.0.4) is a full release. The version CORE is the
+          # canonical identity; the suffix is the human/audit marker.
+          PRERELEASE_FLAG=""
+          case "${TAG}" in
+            *-*) PRERELEASE_FLAG="--prerelease" ;;
+          esac
+
           if [ -f "${NOTES_FILE}" ]; then
-            gh release create "${TAG}" \
+            gh release create "${TAG}" ${PRERELEASE_FLAG} \
               --title "Matika ${TAG}" \
               --notes-file "${NOTES_FILE}"
           else
             FALLBACK_NOTES="## Matika ${TAG}"$'\n\n'"No release notes file found for this tag."
-            gh release create "${TAG}" \
+            gh release create "${TAG}" ${PRERELEASE_FLAG} \
               --title "Matika ${TAG}" \
               --notes "${FALLBACK_NOTES}"
           fi
