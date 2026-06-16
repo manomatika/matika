@@ -55,7 +55,6 @@ alembic upgrade head      # apply all migrations
 cp .env.example .env
 # Then edit .env and set:
 SECRET_KEY=<generate with: python3 -c "import secrets; print(secrets.token_urlsafe(64))">
-MATIKA_ENV=development
 ```
 
 `.env` is gitignored. Never commit it.
@@ -88,22 +87,22 @@ PYTHONPATH=src uvicorn matika.main:app --host 127.0.0.1 --port 8000 --reload
 | Step | Reason |
 |---|---|
 | `source .venv/bin/activate` | Puts `.venv/bin/` on PATH. A fresh shell otherwise reports `uvicorn: command not found` — every developer hits this once. |
-| `export $(cat .env \| grep -v '^#' \| xargs)` | Loads `SECRET_KEY` (required — app refuses to start without it) and `MATIKA_ENV=development` (see below). `grep -v '^#'` strips comment lines. |
+| `export $(cat .env \| grep -v '^#' \| xargs)` | Loads `SECRET_KEY` (required — app refuses to start without it). `grep -v '^#'` strips comment lines. |
 | `PYTHONPATH=src` | Tells Python where to find the `matika` package. |
 | `--reload` | Auto-restarts on Python file changes (does not pick up static assets — hard-reload the browser after `npm run build`). |
 
 Open `http://127.0.0.1:8000`.
 
-### What `MATIKA_ENV=development` does
+### AppLug version compatibility (compare-on-core)
 
-When Matika is at a `_dev` version (e.g. `0.0.4_dev`) the strict version check would normally refuse any AppLug declaring just the released base version (e.g. `0.0.4`). Setting `MATIKA_ENV=development` strips the `_dev` suffix before comparing, so `0.0.4_dev` is treated as `0.0.4` — compatible with applugs that declare the base version.
+AppLug compatibility is decided on the bare version **core** (`X.Y.Z`). The pre-release suffix (`-dev`, `-rc.N`) is stripped from **both** the running Matika version and the AppLug's declared `matika_version` before comparison. So when Matika is at a pre-release version (e.g. `0.0.4-dev`), any AppLug declaring the bare core (`0.0.4`) loads automatically — no env var, no escape hatch.
 
-A warning is logged on every startup when this relaxation is active:
+When the running version is a pre-release, a warning is logged on every startup that loads an AppLug by core match:
 ```
-WARNING — Running in development mode — matika version check relaxed. Never use in production.
+WARNING — Running Matika 0.0.4-dev is a pre-release — AppLug 'eyerate' loaded by core match (0.0.4). Never ship a pre-release runtime to production.
 ```
 
-This only affects the version check. No other validation is relaxed.
+Only the version comparison uses the core. No other validation is relaxed.
 
 **On first run** Matika creates `data/matika.db` (SQLite), seeds the Admin role and a default admin user, and scans `plugins/` for AppLugs.
 
@@ -132,7 +131,7 @@ This is the full sequence for verifying eyerate's `/eyerate/securities` page (or
    ```bash
    python scripts/dev_setup.py
    ```
-4. **`.env`** has both `SECRET_KEY` and `MATIKA_ENV=development` (see above). The dev-mode flag is essential here: matika's `VERSION` is `0.0.4_dev` while eyerate's `applug.json` declares `matika_version: "0.0.4"`. Without `MATIKA_ENV=development`, matika refuses eyerate at startup.
+4. **`.env`** has `SECRET_KEY`. No version env var is needed: matika's `VERSION` is `0.0.4-dev` while eyerate's `applug.json` declares `matika_version: "0.0.4"`. Compatibility is decided on the bare core (`0.0.4` == `0.0.4`), so matika loads eyerate automatically — the pre-release suffix on matika's runtime version is ignored for the comparison.
 
 ### Launch sequence (every shell session)
 
@@ -158,15 +157,13 @@ Every AppLug must declare the Matika version it was built and tested against:
 { "matika_version": "X.Y.Z" }
 ```
 
-### Production (strict matching)
+### Compatibility rule (compare-on-core)
 
-`matika_version` must equal the running Matika version exactly. A mismatch is a hard refusal — the AppLug is skipped at startup with a clear error logged.
+`matika_version` must equal the running Matika version on the bare **core** (`X.Y.Z`). Both sides are stripped of any pre-release suffix (`-dev`, `-rc.N`) before comparison; a core mismatch is a hard refusal — the AppLug is skipped at startup with a clear error logged.
 
-### Development (`MATIKA_ENV=development`)
+The version ladder `X.Y.Z-dev < X.Y.Z-rc.N < X.Y.Z` (final) all resolves to core `X.Y.Z`. An AppLug declaring `X.Y.Z` therefore loads under any of `X.Y.Z-dev`, `X.Y.Z-rc.1`, or final `X.Y.Z`.
 
-The `_dev` suffix is stripped from the running version before comparing. An AppLug declaring `X.Y.Z` loads under Matika `X.Y.Z_dev` (treated as `X.Y.Z` for compatibility purposes — base version match is sufficient).
-
-Never publish an AppLug with a `_dev` value in `matika_version`. That field must always reference a released version.
+Always set `matika_version` to a bare-core (`X.Y.Z`) value. Never publish an AppLug with a pre-release suffix in `matika_version`.
 
 ---
 
@@ -210,7 +207,7 @@ pytest
 pytest tests/test_applug_system.py
 
 # Single test
-pytest tests/test_applug_system.py::test_dev_mode_dev_version_compatible_with_base_released_version
+pytest tests/test_applug_system.py::test_dev_runtime_loads_applug_pinned_to_bare_core
 ```
 
 All tests must pass before committing. No skipped or `xfail` tests without explicit maintainer approval. The test suite uses an isolated SQLite database (`data/test_matika.db`) and a pytest-managed temp directory for plugins — the real `plugins/` directory is never touched.

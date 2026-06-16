@@ -29,7 +29,7 @@ The `start_milestone.py` script automates the creation of a GitHub Milestone, a 
    - Update the `description`.
    - List all `issues` with their respective `title` and `body`.
 2. **Update `VERSION`:**
-   - Update the root `VERSION` file to the target version for this milestone (e.g., `1.0.5_dev`).
+   - Update the root `VERSION` file to the target version for this milestone (e.g., `1.0.5-dev`).
 3. **Run the script:**
    ```bash
    # On Mac/Linux:
@@ -80,7 +80,7 @@ The `release.py` script automates the final steps of a milestone: creating a Pul
 
 | File | Purpose |
 | :--- | :--- |
-| `VERSION` | Update to the next development version (e.g., `1.0.5_dev`). |
+| `VERSION` | Update to the next development version (e.g., `1.0.5-dev`). |
 | `milestone_tasks.yaml` | Define the new milestone name, branch, and all issues to be tracked. |
 | `translations.json` | (If applicable) Add any new UI strings required for the upcoming features. |
 | `metadata/*.json` | (If applicable) Update any activity metadata required for new features. |

@@ -42,6 +42,32 @@ def get_writable_root():
 ROOT_DIR = get_writable_root()
 
 
+def version_core(version: str) -> str:
+    """Strip any pre-release suffix, returning the bare X.Y.Z core.
+
+    The version CORE (everything before the first "-") is the canonical
+    identity used for ALL comparison, artifact/bundle naming, and
+    OS/installer/Info.plist version fields. The pre-release SUFFIX
+    (``-dev``, ``-rc.N``, ...) lives only on human/audit surfaces (the
+    VERSION file string, git tags, release titles, the audit log).
+
+    Examples:
+      "0.0.4-dev"  -> "0.0.4"
+      "0.0.4-rc.1" -> "0.0.4"
+      "0.0.4"      -> "0.0.4"
+
+    This is the single canonical "strip to core" helper for the runtime.
+    scripts/sync_version.py mirrors it for the build/release tooling, which
+    cannot import the installed package.
+    """
+    return version.split("-", 1)[0].strip()
+
+
+def is_prerelease(version: str) -> bool:
+    """True if version carries a pre-release suffix (contains a "-")."""
+    return "-" in version
+
+
 def get_matika_version() -> str:
     """Returns the running Matika version read from the VERSION file."""
     version_file = os.path.join(BASE_DIR, "VERSION")

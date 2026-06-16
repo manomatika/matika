@@ -94,10 +94,12 @@ cp .env.example .env   # then edit .env
 export $(cat .env | xargs)
 ```
 
-`MATIKA_ENV=development` — set this in your local `.env` to allow AppLugs that declare
-a released `matika_version` (e.g. `X.Y.Z`) to load when Matika is running at a `_dev`
-version (e.g. `X.Y.Z_dev`). This relaxes only the version check — no other validation
-changes. Never set this in production. Never commit `.env`.
+AppLug version compatibility is decided on the bare version **CORE** (`X.Y.Z`):
+the pre-release suffix (`-dev`, `-rc.N`) is stripped from BOTH the running
+version and the AppLug's declared `matika_version` before comparison. So a
+pre-release runtime (e.g. `X.Y.Z-dev` or `X.Y.Z-rc.N`) automatically loads any
+AppLug pinned to its bare core `X.Y.Z`. There is no `MATIKA_ENV` escape hatch —
+the old development-mode relaxation has been removed. Never commit `.env`.
 
 ### Run the Development Server
 ```bash
@@ -113,7 +115,7 @@ PYTHONPATH=src uvicorn matika.main:app --host 127.0.0.1 --port 8000 --reload
 
 Why each part is needed:
 - `source .venv/bin/activate` — required; puts `venv/bin/` on PATH so `uvicorn` and all dependencies are found
-- `export $(cat .env | grep -v '^#' | xargs)` — loads `SECRET_KEY` and `MATIKA_ENV` from `.env` into the shell (`grep -v '^#'` strips comment lines)
+- `export $(cat .env | grep -v '^#' | xargs)` — loads `SECRET_KEY` (and any other vars) from `.env` into the shell (`grep -v '^#'` strips comment lines)
 - `PYTHONPATH=src` — tells Python where to find the `matika` package
 - `--reload` — auto-restarts the server on file changes
 
@@ -368,8 +370,9 @@ See `docs/DEPLOYMENT.md` for the full operator guide and `docs/INSTALL.md` for e
 ## Release Pipeline
 
 - `VERSION` is the single source of truth for version metadata. Never hand-edit version literals in any other file (`pyproject.toml`, `package.json`, etc.) — the release tooling propagates from `VERSION`.
-- During development, `VERSION` carries a `_dev` suffix (e.g. `0.0.4_dev`). Propagated files always carry the stripped version (e.g. `0.0.4`) — `_dev` is a marker on `VERSION` only.
-- `scripts/release.py <version>` is the release entry point: verifies `VERSION` currently reads `<target>_dev`, strips `_dev`, runs `sync_version.py`, runs the drift pre-flight check, commits. Does **not** push, tag, or create a GitHub release — those steps are manual, after human review.
+- The version **CORE** (`X.Y.Z`, everything before the first `-`) is the canonical identity for ALL comparison, artifact/bundle naming, and OS/installer/Info.plist version fields. The pre-release **SUFFIX** (`-dev`, `-rc.N`) lives only on human/audit surfaces: the `VERSION` file string, git tags, GitHub release titles/bodies, the audit log. The ladder is `X.Y.Z-dev < X.Y.Z-rc.N < X.Y.Z` (final).
+- During development, `VERSION` carries a pre-release suffix (e.g. `0.0.4-dev`). Propagated files (`pyproject.toml`, `package.json`) and all OS/installer/bundle fields always carry the bare core (e.g. `0.0.4`) — the suffix is a marker on `VERSION`, tags, and release titles only.
+- `scripts/release.py <version>` is the release entry point: accepts a bare-core final (`v0.0.4`) or a pre-release candidate (`v0.0.4-rc.1`), verifies `VERSION` currently shares the target's core under a pre-release suffix, writes the target, runs `sync_version.py` (propagating the bare core), runs the drift pre-flight check, commits. Does **not** push, tag, or create a GitHub release — those steps are manual, after human review.
 - `scripts/sync_version.py` propagates `VERSION` into the allowlist of version-bearing files (currently `pyproject.toml` and `package.json`). When adding a new file with a version literal, add it to the script's allowlist.
 - `scripts/sync_version.py --check` runs in read-only drift detection mode. Exits 0 (clean), 1 (drift), 2 (configuration error). `--check --json` produces structured output: `{"version": "...", "drift": [{"path": "...", "expected": "...", "found": "..."}]}`. An empty `drift` array (`[]`) means clean.
 - Drift output uses double quotes around values, not single quotes (e.g. `DRIFT  pyproject.toml: expected "0.0.4", found "0.0.3"`).
@@ -432,5 +435,5 @@ General working discipline (tests, git, security checks, cross-repo refs, etc.) 
 - Never hardcode `SECRET_KEY` — read from environment only.
 - Never modify the production DB during testing.
 - EyeRate-specific dependencies (`yfinance`, `curl_cffi`) belong in `eyerate/requirements.txt`, not in Matika's `requirements.txt`.
-- `MATIKA_ENV=development` must never be committed — it belongs only in the local `.env`.
+- AppLug version compatibility is decided on the bare version core only (suffix stripped from both sides); there is no `MATIKA_ENV` escape hatch.
 - Standard Python `.gitignore` (GitHub's official Python template) is in place: covers `__pycache__/`, build/dist, `*.egg-info/`, `.pytest_cache/`, `.coverage`, `htmlcov/`, venv variants, `.tox/`, and OS/IDE noise. Never commit compiled artifacts.

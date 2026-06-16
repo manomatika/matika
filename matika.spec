@@ -19,13 +19,24 @@
 import os
 
 # ---------------------------------------------------------------------------
-# Version — read from the VERSION file at spec-build time so the EXE name
-# and version metadata always stay in sync with the repo's single source of
-# truth without any manual edits to this spec.
+# Version — read from the VERSION file at spec-build time so the EXE name and
+# version metadata always stay in sync with the repo's single source of truth
+# without any manual edits to this spec.
+#
+# APP_VERSION is the BARE CORE (X.Y.Z): everything before the first "-". macOS
+# requires CFBundleShortVersionString / CFBundleVersion to be numeric x.y.z, and
+# bundle/exe names must match the cross-repo contract `Matika-<bare-core>`. The
+# pre-release suffix (-dev, -rc.N) is a human/audit marker only and never enters
+# any OS/installer field or artifact name.
+#
+# This mirrors matika.core.paths.version_core; the spec cannot import the
+# installed package, so the one-line "everything before the first '-'" rule is
+# inlined here.
 # ---------------------------------------------------------------------------
 _VERSION_FILE = os.path.join(os.path.dirname(SPEC), "VERSION")
 with open(_VERSION_FILE, "r") as _vf:
-    APP_VERSION = _vf.read().strip().replace("_dev", "")
+    _version_raw = _vf.read().strip()
+APP_VERSION = _version_raw.split("-", 1)[0].strip()  # bare core, see note above
 
 # ---------------------------------------------------------------------------
 # Data files bundled into the frozen app

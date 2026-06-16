@@ -6,12 +6,14 @@ Propagation targets (allowlist):
   pyproject.toml  — [project] version field
   package.json    — top-level "version" field
 
-The VERSION file may carry a _dev suffix (e.g. "0.0.4_dev"). That suffix is
-stripped before propagation so all targets always hold a clean X.Y.Z string.
-VERSION itself is never modified by this script.
+The VERSION file may carry a pre-release suffix (e.g. "0.0.4-dev" or
+"0.0.4-rc.1"). The version CORE (everything before the first "-") is what gets
+propagated, so all targets always hold a bare X.Y.Z string. VERSION itself is
+never modified by this script.
 
-  VERSION="0.0.4_dev"  →  pyproject.toml: version = "0.0.4"
-                           package.json:   "version": "0.0.4"
+  VERSION="0.0.4-dev"   →  pyproject.toml: version = "0.0.4"
+                            package.json:   "version": "0.0.4"
+  VERSION="0.0.4-rc.1"  →  pyproject.toml: version = "0.0.4"
 
 Usage:
   python scripts/sync_version.py                # propagate (write files)
@@ -28,6 +30,29 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
+
+def version_core(version: str) -> str:
+    """Strip any pre-release suffix, returning the bare X.Y.Z core.
+
+    The version CORE (everything before the first "-") is the canonical identity
+    used for ALL comparison, artifact/bundle naming, and OS/installer version
+    fields. The pre-release SUFFIX (-dev, -rc.N, ...) lives only on human/audit
+    surfaces (the VERSION file string, git tags, release titles, the audit log).
+
+    This mirrors matika.core.paths.version_core for the build/release tooling,
+    which cannot import the installed package. The two MUST stay in sync.
+
+      "0.0.4-dev"  -> "0.0.4"
+      "0.0.4-rc.1" -> "0.0.4"
+      "0.0.4"      -> "0.0.4"
+    """
+    return version.split("-", 1)[0].strip()
+
+
+def is_prerelease(version: str) -> bool:
+    """True if version carries a pre-release suffix (contains a "-")."""
+    return "-" in version
+
 # Every file this script touches. drift_check() verifies exactly these.
 SYNC_TARGETS: list[tuple[str, str]] = [
     ("pyproject.toml", "pyproject.toml [project].version"),
@@ -36,13 +61,17 @@ SYNC_TARGETS: list[tuple[str, str]] = [
 
 
 def read_version() -> tuple[str, str]:
-    """Return (raw, clean): raw is the VERSION file contents; clean has _dev stripped."""
+    """Return (raw, clean): raw is the VERSION file contents; clean is the bare core.
+
+    'clean' is the bare X.Y.Z core — ANY pre-release suffix (-dev, -rc.N, ...)
+    is stripped, not just the legacy "_dev".
+    """
     version_file = REPO_ROOT / "VERSION"
     if not version_file.exists():
         print("ERROR: VERSION file not found", file=sys.stderr)
         sys.exit(1)
     raw = version_file.read_text().strip()
-    clean = raw.removesuffix("_dev")
+    clean = version_core(raw)
     return raw, clean
 
 
@@ -96,8 +125,9 @@ def sync(check_only: bool = False, quiet: bool = False) -> list:
 
     quiet=True suppresses all print output (use for JSON consumers).
 
-    In check mode VERSION may carry _dev; the stripped value is what targets
-    are compared against (same as propagation — no special failure for _dev).
+    In check mode VERSION may carry a pre-release suffix; the bare core is what
+    targets are compared against (same as propagation — no special failure for a
+    pre-release suffix here).
     """
     raw, clean = read_version()
 
@@ -160,17 +190,20 @@ def drift_check(expected: str) -> None:
     """
     Verify every sync target holds exactly expected. Exit 1 on any mismatch.
 
-    Also fails if VERSION still carries _dev, which would mean sync was not
-    run in release context (clean version not yet written to VERSION).
+    Also fails if VERSION still carries ANY pre-release suffix (-dev, -rc.N, ...),
+    which means VERSION is not yet release-ready: the bare-core final version has
+    not been written to VERSION.
 
     Note: release.py uses sync(check_only=True) as its drift gate instead of
     calling this directly. This function is retained for standalone use.
     """
     version_file = REPO_ROOT / "VERSION"
     raw = version_file.read_text().strip()
-    if "_dev" in raw:
+    if is_prerelease(raw):
         print(
-            f"DRIFT: VERSION is {raw!r} — _dev must be removed before drift check",
+            f"DRIFT: VERSION is {raw!r} — the pre-release suffix must be removed "
+            f"(bare core {version_core(raw)!r}) before drift check; VERSION is not "
+            f"release-ready",
             file=sys.stderr,
         )
         sys.exit(1)
