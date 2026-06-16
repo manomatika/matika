@@ -42,28 +42,37 @@ _SEMVER_CORE = r"(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)"
 # A pre-release identifier: numeric (no leading zeros) OR alphanumeric-with-hyphen.
 _SEMVER_PRE_IDENT = r"(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)"
 # Dot-separated pre-release identifiers, after the first '-'.
-_SEMVER_PRERELEASE = r"(?:%s(?:\.%s)*)" % (_SEMVER_PRE_IDENT, _SEMVER_PRE_IDENT)
+_SEMVER_PRERELEASE = rf"(?:{_SEMVER_PRE_IDENT}(?:\.{_SEMVER_PRE_IDENT})*)"
 # Build metadata: dot-separated alphanumeric-with-hyphen identifiers, after '+'.
 _SEMVER_BUILD = r"(?:[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)"
 
 _SEMVER_RE = _re.compile(
-    r"^(?P<core>%s)(?:-(?P<prerelease>%s))?(?:\+(?P<build>%s))?$"
-    % (_SEMVER_CORE, _SEMVER_PRERELEASE, _SEMVER_BUILD)
+    rf"^(?P<core>{_SEMVER_CORE})"
+    rf"(?:-(?P<prerelease>{_SEMVER_PRERELEASE}))?"
+    rf"(?:\+(?P<build>{_SEMVER_BUILD}))?$"
 )
 
 
 def _parse_semver(raw):
     """Strictly parse a SemVer 2.0.0 string of the form
-    [v]MAJOR.MINOR.PATCH[-prerelease][+build].
+    ``[v]MAJOR.MINOR.PATCH[-prerelease][+build]``.
 
-    Mirror of src/matika/core/paths.py:_parse_semver. Returns
-    (core, prerelease, build); raises ValueError naming the offending value on
-    any invalid input.
+    A single optional leading 'v' is tolerated and stripped. MAJOR/MINOR/PATCH
+    are non-negative integers with no leading zeros (so '01.2.3' is invalid),
+    exactly three of them. Pre-release identifiers are dot-separated; numeric
+    identifiers carry no leading zeros; identifiers are alphanumerics and hyphens
+    (so a pre-release identifier MAY contain hyphens, e.g. 'alpha-1'). Build
+    metadata after '+' is NOT part of the core and is NOT a pre-release signal.
+    An empty pre-release ('1.2.3-') or empty build is invalid.
+
+    Returns ``(core, prerelease, build)`` where prerelease/build are the
+    substrings after '-'/'+' or None when absent. Raises ValueError naming the
+    offending value and the expected shape on any invalid input.
     """
     if not isinstance(raw, str):
         raise ValueError(
-            "invalid version %r: expected a string of the form "
-            "[v]MAJOR.MINOR.PATCH[-prerelease][+build]" % (raw,)
+            f"invalid version {raw!r}: expected a string of the form "
+            f"[v]MAJOR.MINOR.PATCH[-prerelease][+build]"
         )
     candidate = raw.strip()
     if candidate.startswith("v"):
@@ -71,16 +80,33 @@ def _parse_semver(raw):
     m = _SEMVER_RE.match(candidate)
     if not m:
         raise ValueError(
-            "invalid version %r: expected SemVer of the form "
-            "[v]MAJOR.MINOR.PATCH[-prerelease][+build] (three dot-separated "
-            "non-negative integers without leading zeros, optional pre-release "
-            "and build metadata)" % (raw,)
+            f"invalid version {raw!r}: expected SemVer of the form "
+            f"[v]MAJOR.MINOR.PATCH[-prerelease][+build] "
+            f"(three dot-separated non-negative integers without leading zeros, "
+            f"optional pre-release and build metadata)"
         )
     return m.group("core"), m.group("prerelease"), m.group("build")
 
 
-def version_core(version):
-    """Return the bare MAJOR.MINOR.PATCH core. Mirror of paths.py:version_core."""
+def version_core(version: str) -> str:
+    """Return the bare MAJOR.MINOR.PATCH core of a SemVer string.
+
+    The version CORE is the canonical identity used for ALL comparison,
+    artifact/bundle naming, and OS/installer/Info.plist version fields. The
+    pre-release SUFFIX (``-dev``, ``-rc.N``, ...) and build metadata live only on
+    human/audit surfaces (the VERSION file string, git tags, release titles, the
+    audit log).
+
+    Examples:
+      "0.0.4-dev"        -> "0.0.4"
+      "0.0.4-rc.1"       -> "0.0.4"
+      "v0.0.4-rc.1"      -> "0.0.4"
+      "0.0.4+build.5"    -> "0.0.4"
+      "1.2.3-alpha-1"    -> "1.2.3"
+      "0.0.4"            -> "0.0.4"
+
+    Raises ValueError (naming the offending value) on any non-SemVer input.
+    """
     core, _prerelease, _build = _parse_semver(version)
     return core
 
