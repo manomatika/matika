@@ -31,27 +31,86 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
-def version_core(version: str) -> str:
-    """Strip any pre-release suffix, returning the bare X.Y.Z core.
+# ===========================================================================
+# CANONICAL SEMVER PARSER (mirror)
+#
+# This is an IDENTICAL copy of the strict SemVer 2.0.0 parser whose canonical
+# source is src/matika/core/paths.py (_parse_semver / version_core /
+# is_prerelease). This build/release tooling cannot import the installed
+# package, so the parser is mirrored here verbatim. Any change in paths.py MUST
+# be applied here (and in matika.spec) to keep the three in lockstep.
+# ===========================================================================
 
-    The version CORE (everything before the first "-") is the canonical identity
-    used for ALL comparison, artifact/bundle naming, and OS/installer version
-    fields. The pre-release SUFFIX (-dev, -rc.N, ...) lives only on human/audit
-    surfaces (the VERSION file string, git tags, release titles, the audit log).
+# MAJOR.MINOR.PATCH: each a non-negative integer with NO leading zeros.
+_SEMVER_CORE = r"(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)"
+# A pre-release identifier: numeric (no leading zeros) OR alphanumeric-with-hyphen.
+_SEMVER_PRE_IDENT = r"(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)"
+# Dot-separated pre-release identifiers, after the first '-'.
+_SEMVER_PRERELEASE = rf"(?:{_SEMVER_PRE_IDENT}(?:\.{_SEMVER_PRE_IDENT})*)"
+# Build metadata: dot-separated alphanumeric-with-hyphen identifiers, after '+'.
+_SEMVER_BUILD = r"(?:[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)"
 
-    This mirrors matika.core.paths.version_core for the build/release tooling,
-    which cannot import the installed package. The two MUST stay in sync.
+_SEMVER_RE = re.compile(
+    rf"^(?P<core>{_SEMVER_CORE})"
+    rf"(?:-(?P<prerelease>{_SEMVER_PRERELEASE}))?"
+    rf"(?:\+(?P<build>{_SEMVER_BUILD}))?$"
+)
 
-      "0.0.4-dev"  -> "0.0.4"
-      "0.0.4-rc.1" -> "0.0.4"
-      "0.0.4"      -> "0.0.4"
+
+def _parse_semver(raw):
+    """Strictly parse a SemVer 2.0.0 string of the form
+    ``[v]MAJOR.MINOR.PATCH[-prerelease][+build]``.
+
+    Mirror of src/matika/core/paths.py:_parse_semver. Returns
+    ``(core, prerelease, build)``; raises ValueError naming the offending value
+    on any invalid input.
     """
-    return version.split("-", 1)[0].strip()
+    if not isinstance(raw, str):
+        raise ValueError(
+            f"invalid version {raw!r}: expected a string of the form "
+            f"[v]MAJOR.MINOR.PATCH[-prerelease][+build]"
+        )
+    candidate = raw.strip()
+    if candidate.startswith("v"):
+        candidate = candidate[1:]
+    m = _SEMVER_RE.match(candidate)
+    if not m:
+        raise ValueError(
+            f"invalid version {raw!r}: expected SemVer of the form "
+            f"[v]MAJOR.MINOR.PATCH[-prerelease][+build] "
+            f"(three dot-separated non-negative integers without leading zeros, "
+            f"optional pre-release and build metadata)"
+        )
+    return m.group("core"), m.group("prerelease"), m.group("build")
+
+
+def version_core(version: str) -> str:
+    """Return the bare MAJOR.MINOR.PATCH core of a SemVer string.
+
+    Mirror of src/matika/core/paths.py:version_core. The CORE is the canonical
+    identity propagated to all targets; the pre-release suffix and build metadata
+    are human/audit-only.
+
+      "0.0.4-dev"     -> "0.0.4"
+      "0.0.4-rc.1"    -> "0.0.4"
+      "v0.0.4+build"  -> "0.0.4"
+      "0.0.4"         -> "0.0.4"
+
+    Raises ValueError (naming the offending value) on non-SemVer input.
+    """
+    core, _prerelease, _build = _parse_semver(version)
+    return core
 
 
 def is_prerelease(version: str) -> bool:
-    """True if version carries a pre-release suffix (contains a "-")."""
-    return "-" in version
+    """True iff a SemVer string carries a pre-release component.
+
+    Mirror of src/matika/core/paths.py:is_prerelease. Build metadata alone is NOT
+    a pre-release. Raises ValueError (naming the offending value) on non-SemVer
+    input.
+    """
+    _core, prerelease, _build = _parse_semver(version)
+    return prerelease is not None
 
 # Every file this script touches. drift_check() verifies exactly these.
 SYNC_TARGETS: list[tuple[str, str]] = [

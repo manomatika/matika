@@ -432,6 +432,39 @@ def test_applug_pinned_to_prerelease_compares_on_core(monkeypatch):
     plugin = _ConcretePlugin({"id": "p", "version": "1.0", "matika_version": "0.0.3-rc.1"})
     assert plugin.matika_version == "0.0.3-rc.1"
 
+
+# ---------------------------------------------------------------------------
+# _validate_compatibility — explicit PERMISSIVE vs REJECT directions
+# (strict-parser pass: 0.0.4-rc.1 / 0.0.4-dev load applug pinned 0.0.4;
+#  0.0.5-rc.1 vs applug 0.0.4 raises)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("running", ["0.0.4-rc.1", "0.0.4-dev"])
+def test_validate_compatibility_permissive_prerelease_loads_bare_core(running, monkeypatch):
+    """PERMISSIVE: a pre-release runtime loads an applug pinned to its bare core."""
+    monkeypatch.setattr("matika.core.applug.get_matika_version", lambda: running)
+    plugin = _ConcretePlugin({"id": "p", "version": "1.0", "matika_version": "0.0.4"})
+    assert plugin.matika_version == "0.0.4"
+
+
+def test_validate_compatibility_reject_different_core_prerelease(monkeypatch):
+    """REJECT: running 0.0.5-rc.1 (core 0.0.5) vs applug pinned 0.0.4 raises."""
+    monkeypatch.setattr("matika.core.applug.get_matika_version", lambda: "0.0.5-rc.1")
+    with pytest.raises(RuntimeError, match="0.0.4"):
+        _ConcretePlugin({"id": "p", "version": "1.0", "matika_version": "0.0.4"})
+
+
+def test_validate_compatibility_surfaces_missing_version_error(monkeypatch):
+    """A missing/unreadable VERSION surfaces the specific paths.py error (RULE B),
+    NOT a re-swallowed sentinel and NOT a bare SemVer error."""
+    def _raise():
+        raise RuntimeError(
+            "Matika VERSION file missing or unreadable at /abs/path/VERSION: boom"
+        )
+    monkeypatch.setattr("matika.core.applug.get_matika_version", _raise)
+    with pytest.raises(RuntimeError, match="VERSION file missing or unreadable"):
+        _ConcretePlugin({"id": "p", "version": "1.0", "matika_version": "0.0.4"})
+
 # ---------------------------------------------------------------------------
 # Consolidated *_menus.json — full menu matrix
 # ---------------------------------------------------------------------------
