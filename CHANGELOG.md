@@ -6,10 +6,44 @@ All notable changes to Matika are documented here.
 
 ---
 
-## [Unreleased / 0.0.4-dev]
+## [0.0.4-rc.1] — 2026-06-17
+
+First release candidate for v0.0.4, part of the **ManoMatika v0.0.1** product
+cut. Published as a GitHub prerelease for QA validation. Version core `0.0.4`;
+`-rc.1` is a pre-release marker only.
 
 ### Added
-- *(nothing yet)*
+- Release pipeline: `VERSION` as the single source of truth; `scripts/release.py`;
+  `scripts/sync_version.py` with read-only `--check` drift detection and `--json`
+  output.
+- Strict canonical SemVer 2.0.0 parser (`_parse_semver` / `version_core` /
+  `is_prerelease`) in `core/paths.py`, mirrored verbatim in `sync_version.py` and
+  `matika.spec`; fail-loud. Establishes the core/suffix contract and the
+  `X.Y.Z-dev < X.Y.Z-rc.N < X.Y.Z` ladder.
+- `@manomatika/matika-frontend` npm package on GitHub Packages, with a runtime
+  import map and a `publish-npm.yml` workflow gated to final bare-SemVer tags
+  only (rc/dev tags never publish).
+- Tag-triggered notes-only GitHub Release job (`release.yml`) sourcing its body
+  from `docs/release-notes/<tag>.md`; pre-release tags flagged `--prerelease`.
+- PyInstaller packaging via `matika.spec` + `launcher.py`.
+- Husky pre-commit hook + CI staleness check for compiled TypeScript assets.
+
+### Changed
+- Unified core menu files onto the consolidated `*_menus.json` schema (v1.0).
+- Framework-agnostic `option_sources` dispatch in `maintenance_activity_base.html`.
+- Lowercased the `~/matika` app-data directory and `matika.log` filenames.
+- Bumped `actions/checkout` and `actions/setup-node` to v6.
+- Removed matika's own `RELEASES.md`; the ecosystem audit log now lives in
+  `manomatika/manomatika`.
+- Refreshed CLAUDE.md and docs for the 3-repo ManoMatika product architecture and
+  the version ladder.
+
+### Fixed
+- Attach `csrf_token` in `MaintenanceActivityManager` fetch POSTs.
+- Create the test-DB parent directory before SQLite connects.
+- Skip non-`YYYYMMDD` log filenames silently in `cleanup_logs`.
+- Isolate version-check tests from shell state.
+- Lowercase GitHub slug references (`manomatika/matika`, `manomatika/eyerate`).
 
 ---
 
