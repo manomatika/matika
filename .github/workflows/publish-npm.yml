@@ -3,11 +3,49 @@ name: Publish to GitHub Packages
 on:
   push:
     tags:
-      - 'v*.*.*'      # real releases: v0.0.4, v0.0.5, ...
-      - 'v*.*.*-*'    # prereleases:   v0.0.4-dev.0, v0.0.4-rc.1, ...
+      # Final releases only — e.g. v0.0.4, v0.0.5, v1.2.3.
+      #
+      # IMPORTANT: a tag glob CANNOT express "no hyphen". The '*' wildcard spans
+      # '-', so 'v*.*.*' STILL matches pre-release tags like v0.0.4-rc.1 and
+      # v0.0.4-dev.0. This glob is only a first-pass narrowing (it drops the
+      # explicit 'v*.*.*-*' pattern we used to carry). The real enforcement is
+      # the `gate` job below, which refuses to publish anything that is not a
+      # bare-core final SemVer tag. Belt-and-suspenders: narrow glob AND gate.
+      - 'v*.*.*'
 
 jobs:
+  # ---------------------------------------------------------------------------
+  # Gate: publish ONLY for final, bare-SemVer tags. Release candidates and dev
+  # tags must never reach the registry — an npm publish is an IRREVERSIBLE write
+  # to GitHub Packages, and for an rc the only deliverable is the QA DMG.
+  # ---------------------------------------------------------------------------
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      is_final: ${{ steps.check.outputs.is_final }}
+    steps:
+      - name: Determine whether the pushed tag is a final bare-SemVer release
+        id: check
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          # Canonical final-release identity (project core/suffix contract):
+          # exactly v<MAJOR>.<MINOR>.<PATCH> with NO pre-release suffix ('-...')
+          # and NO build metadata ('+...'). Anything else (rc, dev, +build) is
+          # NOT a registry-publishable release.
+          if printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::notice::Tag '${TAG}' is a final bare-SemVer release -> WILL publish to GitHub Packages."
+            echo "is_final=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::Tag '${TAG}' carries a pre-release suffix or build metadata -> SKIP publish. No registry write for release candidates / dev tags."
+            echo "is_final=false" >> "$GITHUB_OUTPUT"
+          fi
+
   publish:
+    needs: gate
+    # If the tag is not a final bare-SemVer release, this whole job is skipped,
+    # so `npm publish` is structurally unreachable for rc/dev/build-metadata tags
+    # even though the trigger glob still matches them.
+    if: needs.gate.outputs.is_final == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
