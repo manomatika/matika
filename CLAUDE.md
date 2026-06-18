@@ -1,4 +1,4 @@
-**Matika** | Version: **v0.0.4** | Copyright (c) 2026 Patrick James Tallman
+**Matika** | Version: **v0.0.4-rc.1** | Copyright (c) 2026 Patrick James Tallman
 
 # CLAUDE.md
 
