@@ -6,6 +6,24 @@ All notable changes to Matika are documented here.
 
 ---
 
+## [0.0.4-rc.2] — 2026-06-18
+
+Second release candidate for v0.0.4. Fixes the PyInstaller freeze by shipping
+platform-native icons (.icns/.ico) generated from the new 512×512 square source.
+Pillow is not added — native icons make it unnecessary.
+
+### Added
+- `matika.icns` — macOS native icon set (16–512 px; 9/10 slots clean downscales;
+  1024 @2x is a 2× upscale, production acceptable).
+- `matika.ico` — Windows multi-size icon (16/32/48/64/128/256 px; all slots crisp).
+- `matika_icon_256.png` and `matika_icon_512.png` — new square PNG icon sources.
+
+### Fixed
+- `matika.spec` now selects `.icns` on macOS, `.ico` on Windows, and `None` on
+  other platforms — no Pillow required.
+
+---
+
 ## [0.0.4-rc.1] — 2026-06-17
 
 First release candidate for v0.0.4, part of the **ManoMatika v0.0.1** product

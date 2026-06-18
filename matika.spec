@@ -18,6 +18,7 @@
 
 import os
 import re as _re
+import sys as _sys
 
 # ---------------------------------------------------------------------------
 # Version — read from the VERSION file at spec-build time so the EXE name and
@@ -136,6 +137,15 @@ datas = [
 ]
 
 # ---------------------------------------------------------------------------
+# Platform-native icon (per-platform; PNG placeholder works only with Pillow)
+# ---------------------------------------------------------------------------
+_ICON = (
+    "src/matika/static/img/matika.icns" if _sys.platform == "darwin"
+    else "src/matika/static/img/matika.ico" if _sys.platform == "win32"
+    else None
+)
+
+# ---------------------------------------------------------------------------
 # Hidden imports — packages that PyInstaller's static analysis misses
 # ---------------------------------------------------------------------------
 hiddenimports = [
@@ -200,7 +210,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon="src/matika/static/img/matika_icon_128.png",
+    icon=_ICON,
     version_info={
         "version": APP_VERSION,
         "description": "Matika — plugin-agnostic FastAPI desktop framework",
@@ -221,7 +231,7 @@ coll = COLLECT(
 app = BUNDLE(
     coll,
     name=f"Matika-{APP_VERSION}.app",
-    icon="src/matika/static/img/matika_icon_128.png",
+    icon=_ICON,
     bundle_identifier="com.manomatika.matika",
     version=APP_VERSION,
     info_plist={

@@ -1,6 +1,6 @@
 {
   "name": "@manomatika/matika-frontend",
-  "version": "0.0.0",
+  "version": "0.0.4",
   "description": "Frontend TypeScript primitives for Matika applugs",
   "type": "module",
   "main": "src/matika/static/js/index.js",
