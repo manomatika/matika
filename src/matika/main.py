@@ -60,7 +60,7 @@ def create_app() -> FastAPI:
             return
         request.state.user = get_current_user(request, db)
 
-    app = FastAPI(title="Matika", dependencies=[Depends(inject_user_to_state)])
+    app = FastAPI(title="ManoMatika", dependencies=[Depends(inject_user_to_state)])
 
     # Middlewares — outermost runs first on request, last on response.
     # max_age=None → session cookie (cleared on browser close).

@@ -80,3 +80,24 @@ def test_about_page_shows_installed_plugins(client):
 def test_about_page_shows_copyright(client):
     resp = client.get("/about")
     assert "Tallman" in resp.text or "Copyright" in resp.text
+
+
+# ---------------------------------------------------------------------------
+# Product identity — FastAPI title + template surfaces
+# ---------------------------------------------------------------------------
+
+def test_fastapi_app_title_is_product_name():
+    from matika.main import create_app
+    assert create_app().title == "ManoMatika"
+
+
+def test_about_page_app_name_is_product_name(client):
+    resp = client.get("/about")
+    assert resp.status_code == 200
+    assert "ManoMatika" in resp.text
+
+
+def test_about_page_heading_uses_product_name(client):
+    resp = client.get("/about")
+    # heading_about locale key renders "About ManoMatika"
+    assert "About ManoMatika" in resp.text

@@ -265,7 +265,7 @@ def _port_in_use(port: int) -> bool:
 def _show_port_error(port: int) -> None:
     """Display a user-friendly error when the port is already in use."""
     message = (
-        f"Matika cannot start because port {port} is already in use.\n\n"
+        f"ManoMatika cannot start because port {port} is already in use.\n\n"
         f"Another application is listening on port {port}.  Please either:\n"
         f"  • Close the application that is using port {port}, or\n"
         f"  • Restart your computer and try again."
@@ -277,7 +277,7 @@ def _show_port_error(port: int) -> None:
 
         root = tk.Tk()
         root.withdraw()
-        messagebox.showerror("Matika — Port Conflict", message)
+        messagebox.showerror("ManoMatika — Port Conflict", message)
         root.destroy()
     except Exception:
         print(f"ERROR: {message}", file=sys.stderr)
@@ -306,14 +306,14 @@ def main() -> None:
             first_run_init(data_dir)
         except Exception as exc:  # pragma: no cover
             logging.exception("first-run setup failed")
-            msg = f"Matika first-run setup failed:\n\n{exc}\n\nMatika cannot start."
+            msg = f"ManoMatika first-run setup failed:\n\n{exc}\n\nManoMatika cannot start."
             try:
                 import tkinter as tk
                 from tkinter import messagebox
 
                 root = tk.Tk()
                 root.withdraw()
-                messagebox.showerror("Matika — Setup Error", msg)
+                messagebox.showerror("ManoMatika — Setup Error", msg)
                 root.destroy()
             except Exception:
                 print(f"ERROR: {msg}", file=sys.stderr)
