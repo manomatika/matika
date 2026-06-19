@@ -130,6 +130,22 @@ def version_core(version: str) -> str:
 # ---------------------------------------------------------------------------
 APP_NAME = os.environ.get("MATIKA_PRODUCT_NAME") or "Matika"
 
+# CI guard: a CI product build that omits MATIKA_PRODUCT_NAME would silently
+# emit Matika-<framework-version> instead of the correct product bundle name,
+# causing the DMG/installer step to fail on a confusing "bundle not found"
+# error rather than a clear misconfiguration message here. Fail loudly instead.
+if os.environ.get("CI") and not os.environ.get("MATIKA_PRODUCT_NAME"):
+    _sys.exit(
+        "matika.spec: CI=true but MATIKA_PRODUCT_NAME is not set.\n"
+        "A product build must pass the recipe's application.product_name via "
+        "MATIKA_PRODUCT_NAME (e.g. ManoMatika). "
+        "Ahimsa's build.yml provides this from recipe_info outputs. "
+        "Without it the bundle falls back to 'Matika' and the DMG/installer "
+        "step fails with 'bundle not found'. "
+        "Ensure the cloned matika.spec tag includes the product-identity "
+        "changes (v0.0.4-rc.3 or later)."
+    )
+
 _product_version = os.environ.get("MATIKA_PRODUCT_VERSION")
 if _product_version:
     APP_VERSION = version_core(_product_version)  # bare core, see note above
