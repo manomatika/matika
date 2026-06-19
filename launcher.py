@@ -5,18 +5,25 @@ Responsibilities
 ----------------
 1. First-run initialisation:
    - Generate a secure SECRET_KEY and write it to ~/matika/.env
-   - Run ``alembic upgrade head`` to create the database schema
+   - Run alembic migrations IN-PROCESS via alembic.command.upgrade (NOT via
+     subprocess / sys.executable — in a frozen bundle sys.executable IS the
+     app binary; shelling out would re-enter main() and fork-bomb the process)
    - Extract bundled plugins to ~/matika/plugins/<name>/
    - Set MATIKA_PLUGINS_DIR so the app discovers the extracted plugins
    - Write a sentinel file (~/matika/.initialized) on success so init
      is skipped on every subsequent launch
 
-2. Port-conflict detection:
+2. Durable logging:
+   - Configure file + stream logging to ~/matika/logs/matika-<date>.log as
+     the FIRST action after ~/matika/ is created, so a Finder-launched crash
+     always leaves a diagnosable log on disk.
+
+3. Port-conflict detection:
    - Before starting uvicorn, probe port 8000.  If it is already in use,
      show a clear, user-facing error dialog and exit rather than crashing
      silently.
 
-3. App launch:
+4. App launch:
    - Load environment from ~/matika/.env
    - Start uvicorn with the Matika ASGI app
    - Open the default browser after a short delay
@@ -30,15 +37,18 @@ Path helpers
 
 from __future__ import annotations
 
+import logging
 import os
 import secrets
 import shutil
 import socket
-import subprocess
 import sys
 import threading
 import webbrowser
+from datetime import date
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -84,6 +94,41 @@ def _load_env(env_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Logging setup (must run before first_run_init and before uvicorn)
+# ---------------------------------------------------------------------------
+
+def _setup_logging(data_dir: Path) -> None:
+    """Configure file + stream logging to ~/matika/logs/matika-<date>.log.
+
+    Called as the first action after ~/matika/ exists so that a Finder-
+    launched crash always leaves a diagnosable log on disk — Finder discards
+    stdout/stderr, making the log file the only durable diagnostic surface.
+
+    Adds handlers directly to the root logger (does NOT use basicConfig) so
+    the call is idempotent-safe across repeated calls in tests and always
+    installs the file handler regardless of prior logging state.
+    """
+    log_dir = data_dir / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_path = log_dir / f"matika-{date.today().isoformat()}.log"
+
+    fmt = logging.Formatter("%(asctime)s %(levelname)-8s %(name)s: %(message)s")
+
+    fh = logging.FileHandler(log_path, encoding="utf-8")
+    fh.setFormatter(fmt)
+
+    sh = logging.StreamHandler()
+    sh.setFormatter(fmt)
+
+    root = logging.getLogger()
+    root.setLevel(logging.DEBUG)
+    root.addHandler(fh)
+    root.addHandler(sh)
+
+    logger.info("Matika starting — log: %s", log_path)
+
+
+# ---------------------------------------------------------------------------
 # First-run initialisation
 # ---------------------------------------------------------------------------
 
@@ -112,30 +157,43 @@ def _generate_secret_key(env_path: Path) -> None:
 
 
 def _run_alembic_upgrade(data_dir: Path) -> None:
-    """Run ``alembic upgrade head`` to initialise the database schema.
+    """Run alembic migrations IN-PROCESS to initialise the database schema.
 
-    The database lives at ~/matika/data/matika.db and the DATABASE_URL
-    environment variable is set accordingly before the subprocess call.
+    Uses alembic.command.upgrade rather than subprocess so that frozen
+    PyInstaller bundles are safe: sys.executable inside a bundle IS the app
+    binary, and shelling out with [sys.executable, "-m", "alembic", ...] would
+    re-enter launcher.py::main(), trigger another first_run_init(), and spawn
+    another subprocess — fork-bombing until EAGAIN kills the process tree.
+
+    The database lives at ~/matika/data/matika.db.  DATABASE_URL is set in the
+    process environment for the duration of the call because migrations/env.py
+    reads it from os.environ (not from the AlembicConfig object); the previous
+    value is restored on exit so subsequent code is not affected.
     """
+    from alembic import command as alembic_command
+    from alembic.config import Config as AlembicConfig
+
     db_path = data_dir / "data" / "matika.db"
     db_path.parent.mkdir(parents=True, exist_ok=True)
-
-    # Build the DATABASE_URL for SQLite in the writable data dir.
     database_url = f"sqlite:///{db_path}"
-    env = os.environ.copy()
-    env["DATABASE_URL"] = database_url
 
     alembic_ini = _bundle_path("alembic.ini")
-    result = subprocess.run(
-        [sys.executable, "-m", "alembic", "-c", alembic_ini, "upgrade", "head"],
-        env=env,
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(
-            f"alembic upgrade head failed:\n{result.stdout}\n{result.stderr}"
-        )
+    logger.info("Running alembic upgrade head — database: %s", db_path)
+    cfg = AlembicConfig(alembic_ini)
+    cfg.set_main_option("sqlalchemy.url", database_url)
+
+    # migrations/env.py reads DATABASE_URL from the environment; set it for
+    # the duration of the upgrade call and restore the previous value after.
+    _prev_url = os.environ.get("DATABASE_URL")
+    os.environ["DATABASE_URL"] = database_url
+    try:
+        alembic_command.upgrade(cfg, "head")
+    finally:
+        if _prev_url is None:
+            os.environ.pop("DATABASE_URL", None)
+        else:
+            os.environ["DATABASE_URL"] = _prev_url
+    logger.info("alembic upgrade head complete")
 
 
 def _extract_bundled_plugins(data_dir: Path) -> None:
@@ -167,22 +225,26 @@ def first_run_init(data_dir: Path) -> None:
 
     Steps:
     1. Generate SECRET_KEY → ~/matika/.env
-    2. Run alembic upgrade head
+    2. Run alembic upgrade head (in-process, not via subprocess)
     3. Extract bundled plugins → ~/matika/plugins/
     4. Write sentinel file ~/matika/.initialized
 
     Raises ``RuntimeError`` if any step fails; the sentinel is only written
     after all steps succeed so a partial init is retried on next launch.
     """
+    logger.info("First-run init starting")
     env_path = data_dir / ".env"
     _generate_secret_key(env_path)
+    logger.info("SECRET_KEY generated → %s", env_path)
 
     _run_alembic_upgrade(data_dir)
 
     _extract_bundled_plugins(data_dir)
+    logger.info("Plugin extraction complete")
 
     # Mark initialisation complete.
     (data_dir / ".initialized").touch()
+    logger.info("First-run init complete — sentinel written")
 
 
 # ---------------------------------------------------------------------------
@@ -229,6 +291,12 @@ def main() -> None:
     """Initialise and launch the Matika app."""
     port = 8000
     data_dir = _data_dir()
+
+    # Logging must be first so every subsequent step — including failures —
+    # is captured in ~/matika/logs/matika-<date>.log.  Finder discards stderr,
+    # making the log file the only durable diagnostic surface on failed launch.
+    _setup_logging(data_dir)
+
     sentinel = data_dir / ".initialized"
     env_path = data_dir / ".env"
 
@@ -237,6 +305,7 @@ def main() -> None:
         try:
             first_run_init(data_dir)
         except Exception as exc:  # pragma: no cover
+            logging.exception("first-run setup failed")
             msg = f"Matika first-run setup failed:\n\n{exc}\n\nMatika cannot start."
             try:
                 import tkinter as tk
@@ -274,6 +343,8 @@ def main() -> None:
         sys.exit(1)
 
     # --- Launch ---------------------------------------------------------------
+    logger.info("Starting uvicorn on http://127.0.0.1:%s", port)
+
     def _open_browser() -> None:
         webbrowser.open(f"http://127.0.0.1:{port}")
 
