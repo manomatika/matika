@@ -113,10 +113,31 @@ def version_core(version: str) -> str:
     return core
 
 
-_VERSION_FILE = os.path.join(os.path.dirname(SPEC), "VERSION")
-with open(_VERSION_FILE, "r") as _vf:
-    _version_raw = _vf.read().strip()
-APP_VERSION = version_core(_version_raw)  # bare core, see note above
+# ---------------------------------------------------------------------------
+# Product identity (cross-repo: driven by ahimsa build.yml from the recipe).
+#
+# matika is a reusable FRAMEWORK; the user-facing PRODUCT that bundles it
+# (e.g. ManoMatika) owns the installed bundle/exe identity. The ahimsa build
+# job passes the recipe's product name + product version in via env so the
+# frozen artifact is named after the PRODUCT, not after matika the component:
+#
+#   MATIKA_PRODUCT_NAME    -> proper-noun bundle/exe identity   (e.g. ManoMatika)
+#   MATIKA_PRODUCT_VERSION -> bare-core product version          (e.g. 0.0.1)
+#
+# When neither is set — a standalone developer build — the framework's own
+# name ("Matika") and its VERSION-file core are used as sensible defaults. CI
+# product builds always set both, so they emit ManoMatika-<product-core>.app.
+# ---------------------------------------------------------------------------
+APP_NAME = os.environ.get("MATIKA_PRODUCT_NAME") or "Matika"
+
+_product_version = os.environ.get("MATIKA_PRODUCT_VERSION")
+if _product_version:
+    APP_VERSION = version_core(_product_version)  # bare core, see note above
+else:
+    _VERSION_FILE = os.path.join(os.path.dirname(SPEC), "VERSION")
+    with open(_VERSION_FILE, "r") as _vf:
+        _version_raw = _vf.read().strip()
+    APP_VERSION = version_core(_version_raw)  # bare core, see note above
 
 # ---------------------------------------------------------------------------
 # Data files bundled into the frozen app
@@ -212,7 +233,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name=f"Matika-{APP_VERSION}",
+    name=f"{APP_NAME}-{APP_VERSION}",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -227,7 +248,7 @@ exe = EXE(
     version_info={
         "version": APP_VERSION,
         "description": "Matika — plugin-agnostic FastAPI desktop framework",
-        "product_name": "Matika",
+        "product_name": APP_NAME,
     },
 )
 
@@ -238,18 +259,18 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name=f"Matika-{APP_VERSION}",
+    name=f"{APP_NAME}-{APP_VERSION}",
 )
 
 app = BUNDLE(
     coll,
-    name=f"Matika-{APP_VERSION}.app",
+    name=f"{APP_NAME}-{APP_VERSION}.app",
     icon=_ICON,
     bundle_identifier="com.manomatika.matika",
     version=APP_VERSION,
     info_plist={
-        "CFBundleName": "Matika",
-        "CFBundleDisplayName": "Matika",
+        "CFBundleName": APP_NAME,
+        "CFBundleDisplayName": APP_NAME,
         "CFBundleVersion": APP_VERSION,
         "CFBundleShortVersionString": APP_VERSION,
         "NSHighResolutionCapable": True,
