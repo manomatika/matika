@@ -79,11 +79,11 @@ def show_error(msg: str) -> None:
             # osascript is always available on macOS; no extra dependency
             safe = msg.replace("\\", "\\\\").replace('"', '\\"')
             os.system(
-                f'osascript -e \'display alert "Matika Error" message "{safe}" buttons {{"OK"}}\''
+                f'osascript -e \'display alert "ManoMatika Error" message "{safe}" buttons {{"OK"}}\''
             )
         elif sys.platform == "win32":
             import ctypes
-            ctypes.windll.user32.MessageBoxW(0, msg, "Matika Error", 0x10)
+            ctypes.windll.user32.MessageBoxW(0, msg, "ManoMatika Error", 0x10)
     except Exception:
         pass
 
@@ -104,7 +104,7 @@ def check_port() -> None:
     """Exit with a user-facing dialog if port 8000 is already in use."""
     if not _port_available(HOST, PORT):
         show_error(
-            f"Matika cannot start: port {PORT} is already in use.\n"
+            f"ManoMatika cannot start: port {PORT} is already in use.\n"
             "Please close the conflicting application and try again."
         )
         sys.exit(1)
@@ -333,5 +333,5 @@ if __name__ == "__main__":
     except Exception as exc:
         tb = traceback.format_exc()
         log(f"FATAL: {exc}\n{tb}")
-        show_error(f"Failed to start Matika:\n{exc}")
+        show_error(f"Failed to start ManoMatika:\n{exc}")
         sys.exit(1)
