@@ -10,7 +10,6 @@ paths here — those are integration/manual concerns.
 from __future__ import annotations
 
 import os
-import subprocess
 import sys
 from pathlib import Path
 from unittest import mock
@@ -179,38 +178,79 @@ class TestGenerateSecretKey:
 
 
 # ---------------------------------------------------------------------------
-# _run_alembic_upgrade
+# _run_alembic_upgrade  (Fix A regression — no subprocess / in-process API)
 # ---------------------------------------------------------------------------
 
 class TestRunAlembicUpgrade:
-    def test_calls_alembic_with_correct_args(self, tmp_path):
-        """_run_alembic_upgrade must invoke alembic upgrade head via subprocess."""
-        completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
-        with mock.patch("subprocess.run", return_value=completed) as mock_run, \
+    def test_uses_inprocess_alembic_api_not_subprocess(self, tmp_path):
+        """Fix A: _run_alembic_upgrade must call alembic.command.upgrade in-process.
+
+        In a PyInstaller frozen bundle sys.executable IS the app binary; shelling
+        out with [sys.executable, '-m', 'alembic', ...] would re-enter main() and
+        fork-bomb the process tree until EAGAIN.  The fix uses the Python API.
+        """
+        with mock.patch("alembic.command.upgrade") as mock_upgrade, \
              mock.patch.object(launcher, "_bundle_path", return_value=str(tmp_path / "alembic.ini")):
             launcher._run_alembic_upgrade(tmp_path)
 
-        args = mock_run.call_args[0][0]
-        assert args[-3:] == ["-m", "alembic", "-c"] or "alembic" in args
-        # Verify the last two tokens are the upgrade command
-        assert "upgrade" in args
-        assert "head" in args
+        mock_upgrade.assert_called_once()
+        _cfg, revision = mock_upgrade.call_args[0]
+        assert revision == "head"
 
-    def test_raises_on_nonzero_exit(self, tmp_path):
-        completed = subprocess.CompletedProcess(
-            args=[], returncode=1, stdout="out", stderr="error detail"
-        )
-        with mock.patch("subprocess.run", return_value=completed), \
+    def test_does_not_spawn_subprocess(self, tmp_path):
+        """Fix A: critically, no subprocess.run/Popen calls — sys.executable is
+        the frozen binary in a bundle and shelling out would re-enter main()."""
+        with mock.patch("alembic.command.upgrade"), \
+             mock.patch.object(launcher, "_bundle_path", return_value=str(tmp_path / "alembic.ini")), \
+             mock.patch("subprocess.run") as mock_sub, \
+             mock.patch("subprocess.Popen") as mock_popen:
+            launcher._run_alembic_upgrade(tmp_path)
+
+        mock_sub.assert_not_called()
+        mock_popen.assert_not_called()
+
+    def test_sets_sqlalchemy_url_to_data_db(self, tmp_path):
+        """Fix A: the Alembic config must point to ~/matika/data/matika.db."""
+        captured: dict = {}
+
+        def _capture(cfg, revision):
+            captured["url"] = cfg.get_main_option("sqlalchemy.url")
+
+        with mock.patch("alembic.command.upgrade", side_effect=_capture), \
              mock.patch.object(launcher, "_bundle_path", return_value=str(tmp_path / "alembic.ini")):
-            with pytest.raises(RuntimeError, match="alembic upgrade head failed"):
-                launcher._run_alembic_upgrade(tmp_path)
+            ini = tmp_path / "alembic.ini"
+            ini.write_text("[alembic]\n")
+            launcher._run_alembic_upgrade(tmp_path)
+
+        expected = f"sqlite:///{tmp_path / 'data' / 'matika.db'}"
+        assert captured["url"] == expected
 
     def test_creates_data_subdirectory(self, tmp_path):
-        completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
-        with mock.patch("subprocess.run", return_value=completed), \
+        with mock.patch("alembic.command.upgrade"), \
              mock.patch.object(launcher, "_bundle_path", return_value=str(tmp_path / "alembic.ini")):
             launcher._run_alembic_upgrade(tmp_path)
         assert (tmp_path / "data").is_dir()
+
+    def test_database_url_env_scoped_to_call(self, tmp_path, monkeypatch):
+        """Fix A: DATABASE_URL must be set for migrations/env.py during the
+        upgrade call and restored (or removed) on exit so other code is not
+        affected.  The existing sentinel value must be preserved."""
+        monkeypatch.setenv("DATABASE_URL", "sqlite:///sentinel_value.db")
+        captured: dict = {}
+
+        def _capture(cfg, revision):
+            captured["DATABASE_URL_during_upgrade"] = os.environ.get("DATABASE_URL")
+
+        with mock.patch("alembic.command.upgrade", side_effect=_capture), \
+             mock.patch.object(launcher, "_bundle_path", return_value=str(tmp_path / "alembic.ini")):
+            ini = tmp_path / "alembic.ini"
+            ini.write_text("[alembic]\n")
+            launcher._run_alembic_upgrade(tmp_path)
+
+        expected_db = str(tmp_path / "data" / "matika.db")
+        assert captured["DATABASE_URL_during_upgrade"] == f"sqlite:///{expected_db}"
+        # After the call, DATABASE_URL must be restored to the original value.
+        assert os.environ.get("DATABASE_URL") == "sqlite:///sentinel_value.db"
 
 
 # ---------------------------------------------------------------------------
@@ -331,3 +371,133 @@ class TestPortInUse:
             assert launcher._port_in_use(port) is True
         finally:
             srv.close()
+
+
+# ---------------------------------------------------------------------------
+# Fix B regression — matika.spec must bundle plugins/ when the dir exists
+# ---------------------------------------------------------------------------
+
+class TestSpecPluginsDatasEntry:
+    """Fix B: matika.spec must include ("plugins", "plugins") in datas when the
+    plugins/ directory exists (populated by ahimsa build job), and must NOT
+    error when the directory is absent (developer checkout)."""
+
+    def _run_spec_conditional(self, spec_dir: Path, has_plugins: bool) -> list:
+        """Execute the spec's plugins conditional in isolation and return datas."""
+        if has_plugins:
+            (spec_dir / "plugins" / "eyerate").mkdir(parents=True)
+
+        datas: list = []
+        SPEC = str(spec_dir / "matika.spec")
+        _plugins_src = os.path.join(os.path.dirname(SPEC), "plugins")
+        if os.path.isdir(_plugins_src):
+            datas.append(("plugins", "plugins"))
+        return datas
+
+    def test_plugins_included_when_dir_exists(self, tmp_path):
+        """When plugins/ dir is present (CI build), spec must bundle it."""
+        datas = self._run_spec_conditional(tmp_path, has_plugins=True)
+        assert ("plugins", "plugins") in datas
+
+    def test_plugins_absent_when_dir_missing(self, tmp_path):
+        """When plugins/ dir is absent (dev checkout), spec must not error and
+        must not add a phantom entry."""
+        datas = self._run_spec_conditional(tmp_path, has_plugins=False)
+        assert ("plugins", "plugins") not in datas
+
+    def test_spec_file_contains_plugins_conditional(self):
+        """The actual matika.spec source must contain the plugins datas conditional."""
+        spec_path = Path(__file__).parent.parent / "matika.spec"
+        spec_text = spec_path.read_text()
+        assert "_plugins_src" in spec_text, (
+            "matika.spec is missing the _plugins_src guard for plugins/ datas"
+        )
+        assert 'datas.append(("plugins", "plugins"))' in spec_text, (
+            "matika.spec is missing datas.append((\"plugins\", \"plugins\"))"
+        )
+
+    def test_spec_hiddenimports_include_alembic_command(self):
+        """Fix A: matika.spec must freeze alembic.command and alembic.config
+        so the in-process migration API is available in the frozen bundle."""
+        spec_path = Path(__file__).parent.parent / "matika.spec"
+        spec_text = spec_path.read_text()
+        assert '"alembic.command"' in spec_text, (
+            "matika.spec hiddenimports is missing alembic.command"
+        )
+        assert '"alembic.config"' in spec_text, (
+            "matika.spec hiddenimports is missing alembic.config"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Fix C regression — durable file logging from launch
+# ---------------------------------------------------------------------------
+
+@pytest.fixture()
+def clean_root_logger():
+    """Save and restore root logger state around each test."""
+    import logging as _logging
+    root = _logging.getLogger()
+    original_level = root.level
+    original_handlers = list(root.handlers)
+    root.handlers.clear()
+    yield root
+    for h in root.handlers:
+        try:
+            h.close()
+        except Exception:
+            pass
+    root.handlers = original_handlers
+    root.level = original_level
+
+
+class TestSetupLogging:
+    def test_creates_dated_log_file(self, tmp_path, clean_root_logger):
+        """Fix C: _setup_logging must create ~/matika/logs/matika-<date>.log."""
+        from datetime import date as _date
+        launcher._setup_logging(tmp_path)
+        log_dir = tmp_path / "logs"
+        assert log_dir.is_dir()
+        expected = log_dir / f"matika-{_date.today().isoformat()}.log"
+        assert expected.exists(), f"Expected log file not created: {expected}"
+
+    def test_log_file_captures_messages(self, tmp_path, clean_root_logger):
+        """Fix C: messages logged after _setup_logging must appear in the file."""
+        import logging as _logging
+        from datetime import date as _date
+        launcher._setup_logging(tmp_path)
+        log_path = tmp_path / "logs" / f"matika-{_date.today().isoformat()}.log"
+        _logging.getLogger("test.launcher").info("sentinel_message_xyz")
+        content = log_path.read_text(encoding="utf-8")
+        assert "sentinel_message_xyz" in content
+
+    def test_fatal_error_writes_traceback_to_log(self, tmp_path, clean_root_logger):
+        """Fix C: logging.exception() after a crash must include the traceback in
+        the log file — this is the primary diagnostic surface for Finder-launched
+        failures where stderr is discarded."""
+        import logging as _logging
+        from datetime import date as _date
+        launcher._setup_logging(tmp_path)
+        log_path = tmp_path / "logs" / f"matika-{_date.today().isoformat()}.log"
+        try:
+            raise RuntimeError("simulated first-run failure")
+        except Exception:
+            _logging.exception("first-run setup failed")
+        content = log_path.read_text(encoding="utf-8")
+        assert "first-run setup failed" in content
+        assert "RuntimeError" in content
+        assert "simulated first-run failure" in content
+
+    def test_setup_logging_called_before_first_run_init(self):
+        """Fix C: _setup_logging must be called before first_run_init in main().
+        Verified by inspecting main()'s source lines."""
+        import inspect
+        src = inspect.getsource(launcher.main)
+        setup_pos = src.find("_setup_logging")
+        init_pos = src.find("first_run_init")
+        assert setup_pos != -1, "_setup_logging not found in main()"
+        assert init_pos != -1, "first_run_init not found in main()"
+        assert setup_pos < init_pos, (
+            "_setup_logging must appear before first_run_init in main() "
+            f"(found at char {setup_pos} vs {init_pos})"
+        )

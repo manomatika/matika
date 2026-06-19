@@ -10,9 +10,10 @@
 #   npm run build   (compiles TypeScript → src/matika/static/js/)
 #
 # Notes:
-#   - This spec bundles Matika's static assets, templates, locales, menus, and
-#     the Alembic migration tree.  Plugins are NOT bundled here — they are
-#     extracted to ~/matika/plugins/ by launcher.py on first run.
+#   - This spec bundles Matika's static assets, templates, locales, menus, the
+#     Alembic migration tree, and any plugins cloned into plugins/ by the ahimsa
+#     build job.  launcher.py extracts the bundled plugins to ~/matika/plugins/
+#     on first run (see _extract_bundled_plugins).
 #   - The app icon is a PNG (matika_icon_128.png).  Swap for a platform-native
 #     .icns (macOS) or .ico (Windows) when those assets are available.
 
@@ -136,6 +137,15 @@ datas = [
     ("VERSION", "."),
 ]
 
+# Plugins cloned by the ahimsa build job into plugins/ are bundled into the
+# frozen app here so that launcher.py::_extract_bundled_plugins() can copy
+# them from sys._MEIPASS/plugins/ to ~/matika/plugins/ on first run.
+# The guard is required: in a developer checkout plugins/ does not exist and
+# must not cause pyinstaller matika.spec to fail.
+_plugins_src = os.path.join(os.path.dirname(SPEC), "plugins")
+if os.path.isdir(_plugins_src):
+    datas.append(("plugins", "plugins"))
+
 # ---------------------------------------------------------------------------
 # Platform-native icon (per-platform; PNG placeholder works only with Pillow)
 # ---------------------------------------------------------------------------
@@ -153,7 +163,10 @@ hiddenimports = [
     "sqlalchemy.dialects.sqlite",
     "sqlalchemy.dialects.postgresql",
     "sqlalchemy.dialects.mysql",
-    # Alembic internals
+    # Alembic — command and config are imported inside _run_alembic_upgrade at
+    # runtime; the spec-time analysis misses late/conditional imports.
+    "alembic.command",
+    "alembic.config",
     "alembic.runtime.migration",
     "alembic.operations.ops",
     # passlib bcrypt backend
