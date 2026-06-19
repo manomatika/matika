@@ -22,18 +22,24 @@ import pytest
 SPEC_PATH = Path(__file__).parent.parent / "matika.spec"
 
 
-def _exec_spec(monkeypatch, *, product_name=None, product_version=None):
+def _exec_spec(monkeypatch, *, product_name=None, product_version=None, ci=False):
     """Exec matika.spec with PyInstaller globals stubbed; return captured kwargs.
 
     Returns a dict with keys 'EXE', 'COLLECT', 'BUNDLE' each mapping to the
     kwargs dict passed to that constructor in the spec.
+
+    Pass ci=True to simulate a CI environment (sets CI=true). By default the CI
+    env var is cleared so standalone/dev tests are not affected by the CI
+    fail-loud guard.
     """
-    for var in ("MATIKA_PRODUCT_NAME", "MATIKA_PRODUCT_VERSION"):
+    for var in ("MATIKA_PRODUCT_NAME", "MATIKA_PRODUCT_VERSION", "CI"):
         monkeypatch.delenv(var, raising=False)
     if product_name is not None:
         monkeypatch.setenv("MATIKA_PRODUCT_NAME", product_name)
     if product_version is not None:
         monkeypatch.setenv("MATIKA_PRODUCT_VERSION", product_version)
+    if ci:
+        monkeypatch.setenv("CI", "true")
 
     captured: dict[str, dict] = {}
 
@@ -117,3 +123,35 @@ def test_no_hardcoded_matika_literal_in_name_fields():
     # The product identity must be read from the build-provided env var.
     assert "MATIKA_PRODUCT_NAME" in text
     assert "MATIKA_PRODUCT_VERSION" in text
+
+
+# ---------------------------------------------------------------------------
+# CI fail-loud guard — missing product env in CI context must be a hard failure
+# ---------------------------------------------------------------------------
+
+def test_ci_build_without_product_name_exits(monkeypatch):
+    """Regression guard: if CI=true and MATIKA_PRODUCT_NAME is unset, the spec
+    must exit(1) immediately rather than silently falling back to 'Matika' and
+    producing a mis-named bundle that causes a confusing 'bundle not found'
+    error at the DMG/installer step.
+
+    Root cause: v0.0.4-rc.2 did not have this guard; the verification run
+    27849321193 used matika branch feat/product-name-identity (which had the
+    spec changes) via a temporary recipe pin, so the clean-main build was never
+    actually tested. The guard ensures the misconfig surfaces immediately.
+    """
+    with pytest.raises(SystemExit):
+        _exec_spec(monkeypatch, ci=True)  # CI=true, no product_name -> must exit
+
+
+def test_ci_build_with_product_env_succeeds(monkeypatch):
+    """CI=true + MATIKA_PRODUCT_NAME set must NOT trigger the guard."""
+    cap = _exec_spec(monkeypatch, ci=True, product_name="ManoMatika", product_version="0.0.1")
+    assert cap["BUNDLE"]["name"] == "ManoMatika-0.0.1.app"
+
+
+def test_ci_guard_present_in_spec():
+    """Structural guard: the CI fail-loud check must exist in the spec source."""
+    text = SPEC_PATH.read_text()
+    assert 'os.environ.get("CI")' in text
+    assert 'MATIKA_PRODUCT_NAME' in text
