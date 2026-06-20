@@ -9,10 +9,14 @@ Responsibilities
      Alembic to head, IN-PROCESS (NOT via subprocess / sys.executable — in a
      frozen bundle sys.executable IS the app binary; shelling out would
      re-enter main() and fork-bomb the process)
-   - Extract bundled plugins to ~/matika/plugins/<name>/
-   - Set MATIKA_PLUGINS_DIR so the app discovers the extracted plugins
    - Write a sentinel file (~/matika/.initialized) on success so init
      is skipped on every subsequent launch
+
+1a. Plugin install / refresh (EVERY launch, NOT gated by the sentinel):
+   - Install or refresh bundled plugins into ~/matika/plugins/<name>/ —
+     version/fingerprint-gated so an upgrade replaces stale plugin code while
+     preserving user/runtime data (see _extract_bundled_plugins)
+   - Set MATIKA_PLUGINS_DIR so the app discovers the extracted plugins
 
 2. Durable logging:
    - Configure file + stream logging to ~/matika/logs/matika-<date>.log as
@@ -38,6 +42,8 @@ Path helpers
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import os
 import secrets
@@ -327,28 +333,196 @@ def _init_database_schema(data_dir: Path) -> None:
             os.environ["DATABASE_URL"] = _prev_url
 
 
-def _extract_bundled_plugins(data_dir: Path) -> None:
-    """Copy plugins bundled inside the frozen app to ~/matika/plugins/.
+# Per-plugin install marker written into ~/matika/plugins/<id>/ at every
+# extract/refresh. Records WHICH bundled version's CODE is currently installed
+# and a content fingerprint of that code, plus the manifest of code-file paths.
+# It is the signal that lets an UPGRADE refresh stale plugin code instead of
+# skipping it (the root cause of the "admin coming soon / lookup dead" bug:
+# a prior install left an old eyerate template in ~/matika/plugins/eyerate/
+# and the old `if not exists` logic never re-extracted it). The marker name is
+# dotfile-prefixed so AppLugService — which scans for ``applug.json`` — ignores
+# it, and so it never collides with plugin code or user data.
+_INSTALL_MARKER = ".matika_plugin_install.json"
 
-    Plugins are bundled under ``<bundle>/plugins/`` (see matika.spec).
-    Each immediate subdirectory is a plugin; it is copied to
-    ``~/matika/plugins/<name>/`` if not already present so that user
-    modifications made after first run are preserved.
+
+def _read_plugin_version(plugin_dir: Path) -> str | None:
+    """Return the ``version`` declared in a plugin's applug.json, or None.
+
+    ``None`` means the manifest is absent or unreadable — treated as "unknown",
+    which forces a refresh so a corrupt/legacy install is healed rather than
+    trusted.
+    """
+    manifest = plugin_dir / "applug.json"
+    try:
+        with manifest.open(encoding="utf-8") as fh:
+            version = json.load(fh).get("version")
+    except (OSError, ValueError):
+        return None
+    return version if isinstance(version, str) else None
+
+
+def _plugin_code_fingerprint(plugin_dir: Path) -> tuple[str, list[str]]:
+    """Return ``(sha256_hex, sorted_relative_code_paths)`` for *plugin_dir*.
+
+    The hash covers every regular file's relative path AND bytes, so any code
+    change (even a same-version rebuild) changes the fingerprint. The install
+    marker itself is excluded so re-hashing an installed tree is stable. The
+    returned path list is the code manifest used to safely remove stale code on
+    refresh WITHOUT touching user/runtime data that lives outside the manifest.
+    """
+    h = hashlib.sha256()
+    rel_paths: list[str] = []
+    for path in sorted(
+        p for p in plugin_dir.rglob("*") if p.is_file()
+    ):
+        rel = path.relative_to(plugin_dir).as_posix()
+        if rel == _INSTALL_MARKER:
+            continue
+        rel_paths.append(rel)
+        h.update(rel.encode("utf-8"))
+        h.update(b"\0")
+        h.update(path.read_bytes())
+        h.update(b"\0")
+    return h.hexdigest(), rel_paths
+
+
+def _read_install_marker(plugin_dest: Path) -> dict | None:
+    """Return the parsed install marker for an installed plugin, or None."""
+    marker = plugin_dest / _INSTALL_MARKER
+    try:
+        with marker.open(encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _write_install_marker(plugin_dest: Path, version: str | None,
+                          fingerprint: str, files: list[str]) -> None:
+    """Record which bundled version/code is now installed in *plugin_dest*."""
+    marker = plugin_dest / _INSTALL_MARKER
+    payload = {
+        "version": version,
+        "code_fingerprint": fingerprint,
+        "files": files,
+    }
+    with marker.open("w", encoding="utf-8") as fh:
+        json.dump(payload, fh, indent=2, sort_keys=True)
+
+
+def _copy_plugin_code(plugin_src: Path, plugin_dest: Path,
+                      bundled_files: list[str]) -> None:
+    """Overwrite every bundled CODE file from *plugin_src* into *plugin_dest*.
+
+    Only paths in *bundled_files* (the bundle's code manifest) are written, so
+    files that exist in the destination but are NOT part of the bundle (user
+    edits, runtime data) are never touched here — data is preserved by omission.
+    """
+    for rel in bundled_files:
+        src = plugin_src / rel
+        dest = plugin_dest / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(str(src), str(dest))
+
+
+def _remove_stale_code(plugin_dest: Path, old_files: list[str],
+                       new_files: set[str]) -> list[str]:
+    """Delete installed code files that the new bundle no longer ships.
+
+    Only files recorded in the PREVIOUS install marker (*old_files*) are
+    candidates, so user/runtime data — which was never in any marker — is never
+    deleted. Returns the list of removed relative paths (for logging). When the
+    previous install predates this mechanism (no marker → empty *old_files*),
+    nothing is removed: we cannot safely distinguish stale code from user data,
+    so we only overwrite (which already heals the reported bug).
+    """
+    removed: list[str] = []
+    for rel in old_files:
+        if rel in new_files:
+            continue
+        stale = plugin_dest / rel
+        try:
+            if stale.is_file():
+                stale.unlink()
+                removed.append(rel)
+        except OSError:
+            logger.warning("plugin refresh: could not remove stale file %s", stale)
+    return removed
+
+
+def _extract_bundled_plugins(data_dir: Path) -> None:
+    """Install or REFRESH plugins bundled in the frozen app into ~/matika/plugins/.
+
+    Runs on EVERY launch (not just first-run) so an upgrade actually replaces
+    stale plugin code. For each bundled plugin under ``<bundle>/plugins/``:
+
+    * **fresh** — destination absent → copy the whole tree, write the marker.
+    * **refresh** — destination exists but the bundled version differs from the
+      installed version, OR the bundled code fingerprint differs from the one
+      recorded in the install marker (catches same-version rebuilds and legacy
+      installs with no marker) → overwrite all bundled CODE files, remove code
+      the new bundle dropped (manifest-gated, so user/runtime DATA is preserved),
+      rewrite the marker.
+    * **skip** — installed version AND fingerprint already match → no-op.
+
+    Every decision is logged with the versions involved so a support log shows,
+    e.g. ``plugin eyerate: installed 0.0.3, bundled 0.0.4 -> refreshed``.
     """
     bundle_plugins = Path(_bundle_path("plugins"))
     if not bundle_plugins.is_dir():
         # No plugins were bundled — nothing to do.
+        logger.info("No bundled plugins directory at %s — skipping extraction",
+                    bundle_plugins)
         return
 
     plugins_dir = data_dir / "plugins"
     plugins_dir.mkdir(parents=True, exist_ok=True)
 
-    for plugin_src in bundle_plugins.iterdir():
+    for plugin_src in sorted(bundle_plugins.iterdir()):
         if not plugin_src.is_dir():
             continue
-        plugin_dest = plugins_dir / plugin_src.name
+        name = plugin_src.name
+        plugin_dest = plugins_dir / name
+
+        bundled_version = _read_plugin_version(plugin_src)
+        bundled_fp, bundled_files = _plugin_code_fingerprint(plugin_src)
+
         if not plugin_dest.exists():
             shutil.copytree(str(plugin_src), str(plugin_dest))
+            _write_install_marker(plugin_dest, bundled_version, bundled_fp,
+                                  bundled_files)
+            logger.info(
+                "plugin %s: not installed, bundled %s -> extracted (fresh)",
+                name, bundled_version,
+            )
+            continue
+
+        installed_version = _read_plugin_version(plugin_dest)
+        marker = _read_install_marker(plugin_dest)
+        installed_fp = marker.get("code_fingerprint") if marker else None
+        old_files = marker.get("files", []) if marker else []
+
+        version_changed = installed_version != bundled_version
+        code_changed = installed_fp != bundled_fp
+        if not version_changed and not code_changed:
+            logger.info(
+                "plugin %s: installed %s, bundled %s -> up to date (skip)",
+                name, installed_version, bundled_version,
+            )
+            continue
+
+        # Refresh CODE in place, preserving any data files not in the bundle.
+        _copy_plugin_code(plugin_src, plugin_dest, bundled_files)
+        removed = _remove_stale_code(plugin_dest, old_files, set(bundled_files))
+        _write_install_marker(plugin_dest, bundled_version, bundled_fp,
+                              bundled_files)
+        logger.info(
+            "plugin %s: installed %s, bundled %s -> refreshed "
+            "(version_changed=%s, code_changed=%s, stale_removed=%d, "
+            "had_marker=%s)",
+            name, installed_version, bundled_version,
+            version_changed, code_changed, len(removed), marker is not None,
+        )
 
 
 def first_run_init(data_dir: Path) -> None:
@@ -358,8 +532,13 @@ def first_run_init(data_dir: Path) -> None:
     1. Generate SECRET_KEY → ~/matika/.env
     2. Create the database schema (create_all) + stamp Alembic to head
        (in-process, not via subprocess)
-    3. Extract bundled plugins → ~/matika/plugins/
-    4. Write sentinel file ~/matika/.initialized
+    3. Write sentinel file ~/matika/.initialized
+
+    Plugin extraction is NOT a first-run-only step: it runs on every launch
+    (see ``main`` → ``_extract_bundled_plugins``) so an upgrade refreshes stale
+    bundled plugin code. Gating it behind the ``.initialized`` sentinel was the
+    root cause of the "admin coming soon / lookup dead" bug — on an upgrade the
+    sentinel already existed, so the new plugin code was never extracted.
 
     Raises ``RuntimeError`` if any step fails; the sentinel is only written
     after all steps succeed so a partial init is retried on next launch.
@@ -370,9 +549,6 @@ def first_run_init(data_dir: Path) -> None:
     logger.info("SECRET_KEY generated → %s", env_path)
 
     _init_database_schema(data_dir)
-
-    _extract_bundled_plugins(data_dir)
-    logger.info("Plugin extraction complete")
 
     # Mark initialisation complete.
     (data_dir / ".initialized").touch()
@@ -453,6 +629,19 @@ def main() -> None:
 
     # --- Load environment -----------------------------------------------------
     _load_env(env_path)
+
+    # --- Plugin install / refresh (EVERY launch) -----------------------------
+    # Runs unconditionally — NOT gated by the first-run sentinel — so an upgrade
+    # over a prior install refreshes stale bundled plugin code while preserving
+    # user/runtime data. A failure here must not be silent (stale plugins are
+    # exactly the bug we are fixing), but it must also not block boot of the
+    # rest of the app, so log loudly and continue.
+    try:
+        _extract_bundled_plugins(data_dir)
+        logger.info("Plugin install/refresh complete")
+    except Exception:
+        logger.exception("Plugin install/refresh FAILED — continuing boot; "
+                         "plugins may be stale or missing")
 
     # Set MATIKA_PLUGINS_DIR so AppLugService discovers the extracted plugins.
     plugins_dir = data_dir / "plugins"
