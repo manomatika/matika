@@ -6,6 +6,27 @@ All notable changes to Matika are documented here.
 
 ---
 
+## [0.0.4-rc.7] — 2026-06-20
+
+Seventh release candidate for v0.0.4. Fixes the launcher so an upgrade over a
+prior install refreshes stale bundled plugin code instead of skipping it — the
+root cause of EyeRate showing "coming soon" / a dead securities lookup after a
+reinstall.
+
+### Fixed
+- `launcher.py::_extract_bundled_plugins` now runs on EVERY launch (not just
+  first-run, which was gated by the `~/matika/.initialized` sentinel) and is
+  version/content-fingerprint-gated: it refreshes a plugin's CODE when the
+  bundled version or code differs from what is installed, while PRESERVING
+  user/runtime DATA (manifest-gated overwrite + stale-code removal). Per-plugin
+  install/refresh/skip decisions are logged.
+
+### Added
+- Regression tests for fresh / upgrade-refresh / same-version-skip /
+  fingerprint-refresh / stale-code-removal / data-preservation (standing rule 22).
+
+---
+
 ## [0.0.4-rc.2] — 2026-06-18
 
 Second release candidate for v0.0.4. Fixes the PyInstaller freeze by shipping
