@@ -278,37 +278,159 @@ class TestInitDatabaseSchema:
 # ---------------------------------------------------------------------------
 
 class TestExtractBundledPlugins:
-    def test_copies_each_plugin_subdirectory(self, tmp_path):
-        bundle_plugins = tmp_path / "bundle" / "plugins"
-        plugin_a = bundle_plugins / "plugin_a"
-        plugin_a.mkdir(parents=True)
-        (plugin_a / "applug.json").write_text('{"id": "plugin_a"}')
+    """Install / refresh of bundled plugins into ~/matika/plugins/.
 
+    REGRESSION COVERAGE (standing rule 22) for the "admin coming soon / lookup
+    dead on upgrade" bug: an upgrade over a prior install left STALE plugin code
+    in ~/matika/plugins/<id>/ because the old logic skipped any plugin dir that
+    already existed. These tests pin the three paths — fresh, refresh-on-upgrade,
+    same-version skip — plus user-data preservation and stale-code removal.
+    """
+
+    @staticmethod
+    def _make_bundle(root: Path, name: str, version: str | None,
+                     files: dict[str, str]) -> Path:
+        """Create a bundled plugin tree under <root>/<name>/ and return <root>."""
+        plug = root / name
+        plug.mkdir(parents=True, exist_ok=True)
+        manifest = {"id": name}
+        if version is not None:
+            manifest["version"] = version
+        import json as _json
+        (plug / "applug.json").write_text(_json.dumps(manifest))
+        for rel, content in files.items():
+            f = plug / rel
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text(content)
+        return root
+
+    def test_fresh_install_copies_tree_and_writes_marker(self, tmp_path):
+        bundle = self._make_bundle(
+            tmp_path / "bundle" / "plugins", "plugin_a", "0.0.4",
+            {"templates/admin.html": "Financial Data Provider"},
+        )
         data_dir = tmp_path / "data"
         data_dir.mkdir()
 
-        with mock.patch.object(launcher, "_bundle_path", return_value=str(bundle_plugins)):
+        with mock.patch.object(launcher, "_bundle_path", return_value=str(bundle)):
             launcher._extract_bundled_plugins(data_dir)
 
-        assert (data_dir / "plugins" / "plugin_a" / "applug.json").exists()
+        dest = data_dir / "plugins" / "plugin_a"
+        assert (dest / "applug.json").exists()
+        assert (dest / "templates" / "admin.html").read_text() == "Financial Data Provider"
+        marker = launcher._read_install_marker(dest)
+        assert marker is not None
+        assert marker["version"] == "0.0.4"
+        assert "templates/admin.html" in marker["files"]
 
-    def test_skips_existing_plugin_directory(self, tmp_path):
-        """Already-extracted plugins must not be overwritten."""
-        bundle_plugins = tmp_path / "bundle" / "plugins"
-        plugin_a = bundle_plugins / "plugin_a"
-        plugin_a.mkdir(parents=True)
-        (plugin_a / "applug.json").write_text('{"id": "plugin_a"}')
-
+    def test_upgrade_refreshes_stale_code_when_version_differs(self, tmp_path):
+        """THE bug: a prior install's stale template must be replaced on upgrade."""
+        # Installed (stale) plugin: old "coming soon" template, version 0.0.3,
+        # no install marker (predates the refresh mechanism), plus user data.
         data_dir = tmp_path / "data"
-        dest_plugin = data_dir / "plugins" / "plugin_a"
-        dest_plugin.mkdir(parents=True)
-        (dest_plugin / "user_data.txt").write_text("keep this")
+        dest = data_dir / "plugins" / "eyerate"
+        (dest / "templates").mkdir(parents=True)
+        (dest / "templates" / "admin.html").write_text("Administration features coming soon")
+        (dest / "applug.json").write_text('{"id": "eyerate", "version": "0.0.3"}')
+        (dest / "user_settings.json").write_text('{"provider": "yahoo"}')  # user DATA
 
-        with mock.patch.object(launcher, "_bundle_path", return_value=str(bundle_plugins)):
+        # Bundled (new) plugin: real provider form, version 0.0.4.
+        bundle = self._make_bundle(
+            tmp_path / "bundle" / "plugins", "eyerate", "0.0.4",
+            {"templates/admin.html": "Financial Data Provider"},
+        )
+
+        with mock.patch.object(launcher, "_bundle_path", return_value=str(bundle)):
             launcher._extract_bundled_plugins(data_dir)
 
-        # The user's file must still be there — the copy was skipped.
-        assert (dest_plugin / "user_data.txt").exists()
+        # CODE refreshed to the bundled version …
+        assert (dest / "templates" / "admin.html").read_text() == "Financial Data Provider"
+        assert "coming soon" not in (dest / "templates" / "admin.html").read_text()
+        # … user/runtime DATA preserved (not in the bundle manifest) …
+        assert (dest / "user_settings.json").read_text() == '{"provider": "yahoo"}'
+        # … and the marker now records the bundled version.
+        assert launcher._read_install_marker(dest)["version"] == "0.0.4"
+
+    def test_same_version_same_code_is_skipped(self, tmp_path):
+        """A genuine no-op: identical version AND fingerprint → nothing rewritten."""
+        bundle = self._make_bundle(
+            tmp_path / "bundle" / "plugins", "plugin_a", "0.0.4",
+            {"code.txt": "v4"},
+        )
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        # First call performs the fresh install (writes the marker).
+        with mock.patch.object(launcher, "_bundle_path", return_value=str(bundle)):
+            launcher._extract_bundled_plugins(data_dir)
+        dest = data_dir / "plugins" / "plugin_a"
+        # A user file added after install must survive a same-version re-run.
+        (dest / "user_data.txt").write_text("keep this")
+
+        with mock.patch.object(launcher, "_bundle_path", return_value=str(bundle)):
+            launcher._extract_bundled_plugins(data_dir)
+
+        assert (dest / "user_data.txt").read_text() == "keep this"
+        assert (dest / "code.txt").read_text() == "v4"
+
+    def test_same_version_changed_code_is_refreshed_via_fingerprint(self, tmp_path):
+        """Same version but changed CODE (e.g. an rc rebuild) still refreshes."""
+        data_dir = tmp_path / "data"
+        bundle_root = tmp_path / "bundle" / "plugins"
+        bundle = self._make_bundle(bundle_root, "plugin_a", "0.0.4", {"code.txt": "old"})
+        with mock.patch.object(launcher, "_bundle_path", return_value=str(bundle)):
+            launcher._extract_bundled_plugins(data_dir)
+        # Same version, new code bytes.
+        (bundle_root / "plugin_a" / "code.txt").write_text("new")
+
+        with mock.patch.object(launcher, "_bundle_path", return_value=str(bundle)):
+            launcher._extract_bundled_plugins(data_dir)
+
+        assert (data_dir / "plugins" / "plugin_a" / "code.txt").read_text() == "new"
+
+    def test_refresh_removes_code_dropped_by_new_bundle(self, tmp_path):
+        """Code files removed in the new version are deleted; user data is kept."""
+        data_dir = tmp_path / "data"
+        bundle_root = tmp_path / "bundle" / "plugins"
+        bundle = self._make_bundle(
+            bundle_root, "plugin_a", "0.0.4",
+            {"keep.txt": "k", "gone.txt": "g"},
+        )
+        with mock.patch.object(launcher, "_bundle_path", return_value=str(bundle)):
+            launcher._extract_bundled_plugins(data_dir)
+        dest = data_dir / "plugins" / "plugin_a"
+        (dest / "user_data.txt").write_text("mine")  # never in any bundle
+
+        # New bundle drops gone.txt and bumps version.
+        (bundle_root / "plugin_a" / "gone.txt").unlink()
+        (bundle_root / "plugin_a" / "applug.json").write_text('{"id": "plugin_a", "version": "0.0.5"}')
+
+        with mock.patch.object(launcher, "_bundle_path", return_value=str(bundle)):
+            launcher._extract_bundled_plugins(data_dir)
+
+        assert (dest / "keep.txt").exists()
+        assert not (dest / "gone.txt").exists()       # stale code removed
+        assert (dest / "user_data.txt").read_text() == "mine"  # user data kept
+
+    def test_legacy_install_without_marker_refreshes_but_keeps_unknown_files(self, tmp_path):
+        """No marker (pre-fix install): overwrite bundled code, keep everything else."""
+        data_dir = tmp_path / "data"
+        dest = data_dir / "plugins" / "plugin_a"
+        dest.mkdir(parents=True)
+        (dest / "applug.json").write_text('{"id": "plugin_a", "version": "0.0.4"}')
+        (dest / "old_template.html").write_text("coming soon")   # could be stale OR data
+        bundle = self._make_bundle(
+            tmp_path / "bundle" / "plugins", "plugin_a", "0.0.4",
+            {"new_template.html": "real form"},
+        )
+
+        with mock.patch.object(launcher, "_bundle_path", return_value=str(bundle)):
+            launcher._extract_bundled_plugins(data_dir)
+
+        # Bundled code written; unknown pre-existing file conservatively kept
+        # (no marker → cannot prove it is stale code rather than user data).
+        assert (dest / "new_template.html").read_text() == "real form"
+        assert (dest / "old_template.html").exists()
+        assert launcher._read_install_marker(dest) is not None
 
     def test_noop_when_no_bundle_plugins_dir(self, tmp_path):
         """If the bundle has no plugins/ directory, extraction must silently succeed."""
@@ -346,28 +468,26 @@ class TestExtractBundledPlugins:
 class TestFirstRunInit:
     def test_writes_sentinel_on_success(self, tmp_path):
         with mock.patch.object(launcher, "_generate_secret_key"), \
-             mock.patch.object(launcher, "_init_database_schema"), \
-             mock.patch.object(launcher, "_extract_bundled_plugins"):
+             mock.patch.object(launcher, "_init_database_schema"):
             launcher.first_run_init(tmp_path)
         assert (tmp_path / ".initialized").exists()
 
     def test_no_sentinel_on_schema_failure(self, tmp_path):
         with mock.patch.object(launcher, "_generate_secret_key"), \
              mock.patch.object(launcher, "_init_database_schema",
-                               side_effect=RuntimeError("db fail")), \
-             mock.patch.object(launcher, "_extract_bundled_plugins"):
+                               side_effect=RuntimeError("db fail")):
             with pytest.raises(RuntimeError):
                 launcher.first_run_init(tmp_path)
         assert not (tmp_path / ".initialized").exists()
 
-    def test_calls_all_three_steps(self, tmp_path):
+    def test_calls_secret_and_schema_steps(self, tmp_path):
+        # Plugin extraction is NOT a first-run step any more — it runs on every
+        # launch from main() so upgrades refresh stale plugin code.
         with mock.patch.object(launcher, "_generate_secret_key") as gsk, \
-             mock.patch.object(launcher, "_init_database_schema") as ids, \
-             mock.patch.object(launcher, "_extract_bundled_plugins") as ebp:
+             mock.patch.object(launcher, "_init_database_schema") as ids:
             launcher.first_run_init(tmp_path)
         gsk.assert_called_once_with(tmp_path / ".env")
         ids.assert_called_once_with(tmp_path)
-        ebp.assert_called_once_with(tmp_path)
 
 
 # ---------------------------------------------------------------------------
