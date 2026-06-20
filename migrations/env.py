@@ -6,6 +6,7 @@ plugin's own `on_load()` / `create_all()` call and are intentionally
 outside this migration scope. See the AppLug development guide for
 plugin-specific schema migration patterns.
 """
+import logging
 import os
 import sys
 from logging.config import fileConfig
@@ -22,7 +23,14 @@ from matika.models import Base  # noqa: E402
 # ---------------------------------------------------------------------------
 config = context.config
 
-if config.config_file_name is not None:
+# Configure logging from alembic.ini ONLY when running standalone (the alembic
+# CLI), i.e. when nothing has set up the root logger yet. When migrations run
+# IN-PROCESS inside the frozen launcher, the launcher has already installed a
+# durable file handler on the root logger; fileConfig() would replace those
+# handlers (it reconfigures the root logger and disables existing loggers),
+# silently destroying the launcher's ~/matika/logs/ file logging mid-boot. Skip
+# it in that case so startup stays fully logged.
+if config.config_file_name is not None and not logging.getLogger().handlers:
     fileConfig(config.config_file_name)
 
 target_metadata = Base.metadata

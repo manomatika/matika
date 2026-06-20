@@ -5,9 +5,10 @@ Responsibilities
 ----------------
 1. First-run initialisation:
    - Generate a secure SECRET_KEY and write it to ~/matika/.env
-   - Run alembic migrations IN-PROCESS via alembic.command.upgrade (NOT via
-     subprocess / sys.executable — in a frozen bundle sys.executable IS the
-     app binary; shelling out would re-enter main() and fork-bomb the process)
+   - Create the DB schema from the SQLAlchemy models (create_all) and stamp
+     Alembic to head, IN-PROCESS (NOT via subprocess / sys.executable — in a
+     frozen bundle sys.executable IS the app binary; shelling out would
+     re-enter main() and fork-bomb the process)
    - Extract bundled plugins to ~/matika/plugins/<name>/
    - Set MATIKA_PLUGINS_DIR so the app discovers the extracted plugins
    - Write a sentinel file (~/matika/.initialized) on success so init
@@ -49,6 +50,12 @@ from datetime import date
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+# Set once _setup_logging() installs the file handler. The emergency paths
+# below fall back to writing this same file directly if normal logging never
+# got the chance to initialise.
+_LOG_PATH: Path | None = None
+_LOGGING_CONFIGURED = False
 
 
 # ---------------------------------------------------------------------------
@@ -107,7 +114,14 @@ def _setup_logging(data_dir: Path) -> None:
     Adds handlers directly to the root logger (does NOT use basicConfig) so
     the call is idempotent-safe across repeated calls in tests and always
     installs the file handler regardless of prior logging state.
+
+    Idempotent: a second call is a no-op so the bootstrap-then-main sequence
+    does not double-install handlers.
     """
+    global _LOG_PATH, _LOGGING_CONFIGURED
+    if _LOGGING_CONFIGURED:
+        return
+
     log_dir = data_dir / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / f"matika-{date.today().isoformat()}.log"
@@ -125,7 +139,96 @@ def _setup_logging(data_dir: Path) -> None:
     root.addHandler(fh)
     root.addHandler(sh)
 
+    _LOG_PATH = log_path
+    _LOGGING_CONFIGURED = True
     logger.info("Matika starting — log: %s", log_path)
+
+
+# ---------------------------------------------------------------------------
+# Last-resort failure capture
+#
+# The user MANDATE: no startup failure may ever be silent. A Finder-launched
+# crash discards stdout/stderr, so the dated log file is the only durable
+# diagnostic surface. These helpers guarantee a traceback reaches that file
+# even for import-time / pre-main failures that occur before — or instead of —
+# normal logging being configured.
+# ---------------------------------------------------------------------------
+
+def _emergency_log_path() -> Path:
+    """Best-effort path to today's log file, creating ~/matika/logs/ if needed.
+
+    Used when a failure happens before _setup_logging() ran (so _LOG_PATH is
+    still None). Never raises: on any error it falls back to ~/matika so the
+    traceback still lands on disk somewhere discoverable.
+    """
+    if _LOG_PATH is not None:
+        return _LOG_PATH
+    try:
+        log_dir = Path.home() / "matika" / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        return log_dir / f"matika-{date.today().isoformat()}.log"
+    except Exception:
+        return Path.home() / "matika" / "startup-failure.log"
+
+
+def _write_fatal(exc: BaseException) -> str:
+    """Write the full traceback of *exc* to the dated log file and return it.
+
+    Tries the configured root logger first (so the record is formatted and
+    flushed like every other line); ALWAYS also appends the raw traceback to
+    the dated log file directly, so the diagnostic survives even if the
+    logging subsystem itself is the thing that failed to initialise.
+    """
+    import traceback as _tb
+
+    tb_text = "".join(_tb.format_exception(type(exc), exc, exc.__traceback__))
+
+    try:
+        logging.getLogger().critical("FATAL startup failure:\n%s", tb_text)
+    except Exception:
+        pass
+
+    try:
+        path = _emergency_log_path()
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write(
+                f"\n{date.today().isoformat()} FATAL startup failure "
+                f"(ManoMatika could not start):\n{tb_text}\n"
+            )
+    except Exception:
+        # Truly last resort — stderr (discarded under Finder, but present in
+        # the CI smoke launch and `open`-from-terminal paths).
+        print(f"FATAL startup failure:\n{tb_text}", file=sys.stderr)
+
+    return tb_text
+
+
+def _show_fatal_dialog(tb_text: str) -> None:
+    """Show the user-facing 'cannot start' dialog with the failure detail."""
+    msg = (
+        "ManoMatika cannot start — an error occurred during launch.\n\n"
+        f"{tb_text.strip().splitlines()[-1] if tb_text.strip() else ''}\n\n"
+        "See the log file in ~/matika/logs/ for the full traceback."
+    )
+    try:
+        import tkinter as tk
+        from tkinter import messagebox
+
+        root = tk.Tk()
+        root.withdraw()
+        messagebox.showerror("ManoMatika — Startup Error", msg)
+        root.destroy()
+    except Exception:
+        print(f"ERROR: {msg}", file=sys.stderr)
+
+
+def _excepthook(exc_type, exc, tb) -> None:
+    """Top-level last-resort hook: log any uncaught exception + show dialog."""
+    if issubclass(exc_type, KeyboardInterrupt):
+        sys.__excepthook__(exc_type, exc, tb)
+        return
+    tb_text = _write_fatal(exc)
+    _show_fatal_dialog(tb_text)
 
 
 # ---------------------------------------------------------------------------
@@ -156,44 +259,72 @@ def _generate_secret_key(env_path: Path) -> None:
     os.environ["SECRET_KEY"] = key
 
 
-def _run_alembic_upgrade(data_dir: Path) -> None:
-    """Run alembic migrations IN-PROCESS to initialise the database schema.
+def _init_database_schema(data_dir: Path) -> None:
+    """Initialise the first-run database schema IN-PROCESS, then stamp Alembic.
 
-    Uses alembic.command.upgrade rather than subprocess so that frozen
-    PyInstaller bundles are safe: sys.executable inside a bundle IS the app
-    binary, and shelling out with [sys.executable, "-m", "alembic", ...] would
-    re-enter launcher.py::main(), trigger another first_run_init(), and spawn
-    another subprocess — fork-bombing until EAGAIN kills the process tree.
+    matika's SQLAlchemy models are the source of truth for the schema:
+    ``matika.database.init_db()`` runs ``Base.metadata.create_all()``, which
+    creates every table AND the indexes the models declare. The Alembic
+    migrations carry only INCREMENTAL changes for already-existing installs
+    (e.g. adding the permissions indexes to a pre-index DB), so running
+    ``alembic upgrade head`` against a FRESH empty database fails with
+    "no such table: permissions" — the initial index migration assumes the
+    table is already there. (That is exactly the second boot failure the CI
+    smoke-launch caught.)
 
-    The database lives at ~/matika/data/matika.db.  DATABASE_URL is set in the
-    process environment for the duration of the call because migrations/env.py
-    reads it from os.environ (not from the AlembicConfig object); the previous
-    value is restored on exit so subsequent code is not affected.
+    The correct first-run sequence for this create_all-owns-the-schema model is
+    therefore: ``create_all()`` to build the current schema, then
+    ``alembic stamp head`` to record the DB as fully migrated — so a future app
+    version's NEW migrations apply incrementally on top, and the initial index
+    migration is never replayed onto a schema that already has those indexes.
+
+    Everything runs IN-PROCESS via the Alembic Python API rather than a
+    subprocess: sys.executable inside a frozen bundle IS the app binary, so
+    shelling out with [sys.executable, "-m", "alembic", ...] would re-enter
+    launcher.py::main(), trigger another first_run_init(), and fork-bomb the
+    process tree until EAGAIN.
+
+    The database lives at ~/matika/data/matika.db. DATABASE_URL is set in the
+    process environment because matika.database builds its engine from it at
+    import time (and migrations/env.py reads it too); the previous value is
+    restored on exit so subsequent code is not affected.
     """
-    from alembic import command as alembic_command
-    from alembic.config import Config as AlembicConfig
-
     db_path = data_dir / "data" / "matika.db"
     db_path.parent.mkdir(parents=True, exist_ok=True)
     database_url = f"sqlite:///{db_path}"
 
-    alembic_ini = _bundle_path("alembic.ini")
-    logger.info("Running alembic upgrade head — database: %s", db_path)
-    cfg = AlembicConfig(alembic_ini)
-    cfg.set_main_option("sqlalchemy.url", database_url)
-
-    # migrations/env.py reads DATABASE_URL from the environment; set it for
-    # the duration of the upgrade call and restore the previous value after.
+    # matika.database reads DATABASE_URL at import time to build its engine, so
+    # it MUST be set before the import below. Restore the prior value after.
     _prev_url = os.environ.get("DATABASE_URL")
     os.environ["DATABASE_URL"] = database_url
     try:
-        alembic_command.upgrade(cfg, "head")
+        logger.info("Creating database schema (create_all) — database: %s", db_path)
+        from matika.database import init_db
+
+        init_db()  # Base.metadata.create_all — tables + model-declared indexes
+        logger.info("Database schema created")
+
+        from alembic import command as alembic_command
+        from alembic.config import Config as AlembicConfig
+
+        alembic_ini = _bundle_path("alembic.ini")
+        migrations_dir = _bundle_path("migrations")
+        cfg = AlembicConfig(alembic_ini)
+        cfg.set_main_option("sqlalchemy.url", database_url)
+        # Pin script_location to the bundled migrations tree explicitly so the
+        # stamp resolves the sys._MEIPASS-relative versions/, not a dev path.
+        cfg.set_main_option("script_location", migrations_dir)
+        logger.info(
+            "Stamping alembic to head (ini=%s, migrations=%s)",
+            alembic_ini, migrations_dir,
+        )
+        alembic_command.stamp(cfg, "head")
+        logger.info("alembic stamp head complete")
     finally:
         if _prev_url is None:
             os.environ.pop("DATABASE_URL", None)
         else:
             os.environ["DATABASE_URL"] = _prev_url
-    logger.info("alembic upgrade head complete")
 
 
 def _extract_bundled_plugins(data_dir: Path) -> None:
@@ -225,7 +356,8 @@ def first_run_init(data_dir: Path) -> None:
 
     Steps:
     1. Generate SECRET_KEY → ~/matika/.env
-    2. Run alembic upgrade head (in-process, not via subprocess)
+    2. Create the database schema (create_all) + stamp Alembic to head
+       (in-process, not via subprocess)
     3. Extract bundled plugins → ~/matika/plugins/
     4. Write sentinel file ~/matika/.initialized
 
@@ -237,7 +369,7 @@ def first_run_init(data_dir: Path) -> None:
     _generate_secret_key(env_path)
     logger.info("SECRET_KEY generated → %s", env_path)
 
-    _run_alembic_upgrade(data_dir)
+    _init_database_schema(data_dir)
 
     _extract_bundled_plugins(data_dir)
     logger.info("Plugin extraction complete")
@@ -361,4 +493,24 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    # Logging up FIRST — before any risky/heavy import in main() (alembic, the
+    # matika app, plugins, uvicorn). A failure anywhere after this point lands
+    # in ~/matika/logs/matika-<date>.log, satisfying the mandate that NO
+    # startup failure is ever silent.
+    try:
+        _setup_logging(_data_dir())
+    except Exception as _boot_exc:  # logging bootstrap itself failed
+        _write_fatal(_boot_exc)
+
+    # Catch even exceptions raised outside the explicit try/except below
+    # (e.g. in background threads' default hook) as a final backstop.
+    sys.excepthook = _excepthook
+
+    try:
+        main()
+    except SystemExit:
+        raise  # an intentional sys.exit() — already logged at the call site
+    except BaseException as _exc:
+        tb_text = _write_fatal(_exc)
+        _show_fatal_dialog(tb_text)
+        sys.exit(1)

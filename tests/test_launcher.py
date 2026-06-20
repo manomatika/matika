@@ -178,78 +178,98 @@ class TestGenerateSecretKey:
 
 
 # ---------------------------------------------------------------------------
-# _run_alembic_upgrade  (Fix A regression — no subprocess / in-process API)
+# _init_database_schema  (create_all + alembic stamp head; in-process, no subprocess)
 # ---------------------------------------------------------------------------
 
-class TestRunAlembicUpgrade:
-    def test_uses_inprocess_alembic_api_not_subprocess(self, tmp_path):
-        """Fix A: _run_alembic_upgrade must call alembic.command.upgrade in-process.
+class TestInitDatabaseSchema:
+    """Defect 1 (layer 3): a FRESH first-run DB must be created via the models'
+    create_all() and then stamped to Alembic head — NOT `alembic upgrade head`,
+    which fails on an empty DB because the initial migration only ADDS indexes to
+    an already-existing permissions table."""
 
-        In a PyInstaller frozen bundle sys.executable IS the app binary; shelling
-        out with [sys.executable, '-m', 'alembic', ...] would re-enter main() and
-        fork-bomb the process tree until EAGAIN.  The fix uses the Python API.
-        """
-        with mock.patch("alembic.command.upgrade") as mock_upgrade, \
-             mock.patch.object(launcher, "_bundle_path", return_value=str(tmp_path / "alembic.ini")):
-            launcher._run_alembic_upgrade(tmp_path)
+    def _patch_db(self):
+        """Patch matika.database.init_db so the test does not need a real DB."""
+        import sys as _sys
+        import types as _types
+        fake_db = _types.ModuleType("matika.database")
+        fake_db.init_db = mock.MagicMock()
+        # Ensure a parent `matika` package exists so the submodule import works.
+        if "matika" not in _sys.modules:
+            pkg = _types.ModuleType("matika")
+            pkg.__path__ = []  # mark as package
+            _sys.modules["matika"] = pkg
+        return mock.patch.dict(_sys.modules, {"matika.database": fake_db}), fake_db
 
-        mock_upgrade.assert_called_once()
-        _cfg, revision = mock_upgrade.call_args[0]
-        assert revision == "head"
-
-    def test_does_not_spawn_subprocess(self, tmp_path):
-        """Fix A: critically, no subprocess.run/Popen calls — sys.executable is
-        the frozen binary in a bundle and shelling out would re-enter main()."""
-        with mock.patch("alembic.command.upgrade"), \
+    def test_creates_schema_then_stamps_head_inprocess(self, tmp_path):
+        """create_all() runs first, then alembic.command.stamp(cfg, 'head') — all
+        in-process (no subprocess, which would re-enter main() and fork-bomb)."""
+        patch_db, fake_db = self._patch_db()
+        with patch_db, \
+             mock.patch("alembic.command.stamp") as mock_stamp, \
              mock.patch.object(launcher, "_bundle_path", return_value=str(tmp_path / "alembic.ini")), \
              mock.patch("subprocess.run") as mock_sub, \
              mock.patch("subprocess.Popen") as mock_popen:
-            launcher._run_alembic_upgrade(tmp_path)
+            launcher._init_database_schema(tmp_path)
 
+        fake_db.init_db.assert_called_once()
+        mock_stamp.assert_called_once()
+        _cfg, revision = mock_stamp.call_args[0]
+        assert revision == "head"
         mock_sub.assert_not_called()
         mock_popen.assert_not_called()
 
+    def test_does_not_call_alembic_upgrade(self, tmp_path):
+        """Regression: upgrade head on a fresh empty DB is the second boot bug —
+        the launcher must stamp, never upgrade, on first run."""
+        patch_db, _ = self._patch_db()
+        with patch_db, \
+             mock.patch("alembic.command.stamp"), \
+             mock.patch("alembic.command.upgrade") as mock_upgrade, \
+             mock.patch.object(launcher, "_bundle_path", return_value=str(tmp_path / "alembic.ini")):
+            launcher._init_database_schema(tmp_path)
+        mock_upgrade.assert_not_called()
+
     def test_sets_sqlalchemy_url_to_data_db(self, tmp_path):
-        """Fix A: the Alembic config must point to ~/matika/data/matika.db."""
         captured: dict = {}
 
         def _capture(cfg, revision):
             captured["url"] = cfg.get_main_option("sqlalchemy.url")
 
-        with mock.patch("alembic.command.upgrade", side_effect=_capture), \
+        patch_db, _ = self._patch_db()
+        with patch_db, \
+             mock.patch("alembic.command.stamp", side_effect=_capture), \
              mock.patch.object(launcher, "_bundle_path", return_value=str(tmp_path / "alembic.ini")):
-            ini = tmp_path / "alembic.ini"
-            ini.write_text("[alembic]\n")
-            launcher._run_alembic_upgrade(tmp_path)
+            (tmp_path / "alembic.ini").write_text("[alembic]\n")
+            launcher._init_database_schema(tmp_path)
 
-        expected = f"sqlite:///{tmp_path / 'data' / 'matika.db'}"
-        assert captured["url"] == expected
+        assert captured["url"] == f"sqlite:///{tmp_path / 'data' / 'matika.db'}"
 
     def test_creates_data_subdirectory(self, tmp_path):
-        with mock.patch("alembic.command.upgrade"), \
+        patch_db, _ = self._patch_db()
+        with patch_db, \
+             mock.patch("alembic.command.stamp"), \
              mock.patch.object(launcher, "_bundle_path", return_value=str(tmp_path / "alembic.ini")):
-            launcher._run_alembic_upgrade(tmp_path)
+            launcher._init_database_schema(tmp_path)
         assert (tmp_path / "data").is_dir()
 
-    def test_database_url_env_scoped_to_call(self, tmp_path, monkeypatch):
-        """Fix A: DATABASE_URL must be set for migrations/env.py during the
-        upgrade call and restored (or removed) on exit so other code is not
-        affected.  The existing sentinel value must be preserved."""
+    def test_database_url_set_before_db_import_and_restored(self, tmp_path, monkeypatch):
+        """DATABASE_URL must be set (so matika.database builds the right engine
+        and env.py sees it) and restored to the prior value on exit."""
         monkeypatch.setenv("DATABASE_URL", "sqlite:///sentinel_value.db")
         captured: dict = {}
 
-        def _capture(cfg, revision):
-            captured["DATABASE_URL_during_upgrade"] = os.environ.get("DATABASE_URL")
-
-        with mock.patch("alembic.command.upgrade", side_effect=_capture), \
+        patch_db, fake_db = self._patch_db()
+        fake_db.init_db.side_effect = lambda: captured.__setitem__(
+            "DATABASE_URL_during", os.environ.get("DATABASE_URL")
+        )
+        with patch_db, \
+             mock.patch("alembic.command.stamp"), \
              mock.patch.object(launcher, "_bundle_path", return_value=str(tmp_path / "alembic.ini")):
-            ini = tmp_path / "alembic.ini"
-            ini.write_text("[alembic]\n")
-            launcher._run_alembic_upgrade(tmp_path)
+            (tmp_path / "alembic.ini").write_text("[alembic]\n")
+            launcher._init_database_schema(tmp_path)
 
         expected_db = str(tmp_path / "data" / "matika.db")
-        assert captured["DATABASE_URL_during_upgrade"] == f"sqlite:///{expected_db}"
-        # After the call, DATABASE_URL must be restored to the original value.
+        assert captured["DATABASE_URL_during"] == f"sqlite:///{expected_db}"
         assert os.environ.get("DATABASE_URL") == "sqlite:///sentinel_value.db"
 
 
@@ -326,14 +346,14 @@ class TestExtractBundledPlugins:
 class TestFirstRunInit:
     def test_writes_sentinel_on_success(self, tmp_path):
         with mock.patch.object(launcher, "_generate_secret_key"), \
-             mock.patch.object(launcher, "_run_alembic_upgrade"), \
+             mock.patch.object(launcher, "_init_database_schema"), \
              mock.patch.object(launcher, "_extract_bundled_plugins"):
             launcher.first_run_init(tmp_path)
         assert (tmp_path / ".initialized").exists()
 
-    def test_no_sentinel_on_alembic_failure(self, tmp_path):
+    def test_no_sentinel_on_schema_failure(self, tmp_path):
         with mock.patch.object(launcher, "_generate_secret_key"), \
-             mock.patch.object(launcher, "_run_alembic_upgrade",
+             mock.patch.object(launcher, "_init_database_schema",
                                side_effect=RuntimeError("db fail")), \
              mock.patch.object(launcher, "_extract_bundled_plugins"):
             with pytest.raises(RuntimeError):
@@ -342,11 +362,11 @@ class TestFirstRunInit:
 
     def test_calls_all_three_steps(self, tmp_path):
         with mock.patch.object(launcher, "_generate_secret_key") as gsk, \
-             mock.patch.object(launcher, "_run_alembic_upgrade") as rau, \
+             mock.patch.object(launcher, "_init_database_schema") as ids, \
              mock.patch.object(launcher, "_extract_bundled_plugins") as ebp:
             launcher.first_run_init(tmp_path)
         gsk.assert_called_once_with(tmp_path / ".env")
-        rau.assert_called_once_with(tmp_path)
+        ids.assert_called_once_with(tmp_path)
         ebp.assert_called_once_with(tmp_path)
 
 
@@ -428,6 +448,62 @@ class TestSpecPluginsDatasEntry:
             "matika.spec hiddenimports is missing alembic.config"
         )
 
+    def test_spec_collects_full_alembic_and_sqlalchemy_packages(self):
+        """Defect 1: hiddenimports alone misses alembic's dynamically-loaded
+        migration runtime and data tree. matika.spec must collect_all() the
+        alembic and sqlalchemy packages so the frozen bundle can run the
+        in-process migration without 'No module named alembic'."""
+        spec_path = Path(__file__).parent.parent / "matika.spec"
+        spec_text = spec_path.read_text()
+        assert "collect_all" in spec_text, "matika.spec is not using collect_all"
+        assert 'collect_all("alembic")' in spec_text, (
+            "matika.spec must collect_all('alembic')"
+        )
+        assert 'collect_all("sqlalchemy")' in spec_text, (
+            "matika.spec must collect_all('sqlalchemy')"
+        )
+
+    def test_spec_force_bundles_entire_matika_package(self, monkeypatch):
+        """Defect 1 (layer 2): matika submodules are loaded DYNAMICALLY — alembic
+        migrations/env.py runs `from matika.models import Base`, and applugs
+        import matika.* at load — so the spec must freeze the whole matika
+        package, not just what launcher.py statically reaches. Exec the spec and
+        assert the dynamically-needed modules land in hiddenimports."""
+        from unittest.mock import MagicMock
+
+        for var in ("MATIKA_PRODUCT_NAME", "MATIKA_PRODUCT_VERSION", "CI"):
+            monkeypatch.delenv(var, raising=False)
+        spec_path = Path(__file__).parent.parent / "matika.spec"
+        ns = {
+            "Analysis": lambda *a, **k: MagicMock(),
+            "PYZ": lambda *a, **k: MagicMock(),
+            "EXE": lambda *a, **k: MagicMock(),
+            "COLLECT": lambda *a, **k: MagicMock(),
+            "BUNDLE": lambda *a, **k: MagicMock(),
+            "SPEC": str(spec_path),
+        }
+        exec(compile(spec_path.read_text(), str(spec_path), "exec"), ns)
+        hidden = ns.get("hiddenimports", [])
+        assert "matika.models" in hidden, (
+            "matika.models must be force-bundled (alembic env.py imports it)"
+        )
+        assert "matika.main" in hidden
+        assert any(m.startswith("matika.routers") for m in hidden), (
+            "matika router submodules must be bundled"
+        )
+
+    def test_migrations_env_does_not_clobber_existing_logging(self):
+        """Defect 2 regression: migrations/env.py must NOT call fileConfig when
+        the root logger already has handlers (the in-process launcher case) —
+        fileConfig would replace the launcher's durable ~/matika/logs file
+        handler mid-boot, silently losing startup logging after the first
+        alembic call."""
+        env_path = Path(__file__).parent.parent / "migrations" / "env.py"
+        env_text = env_path.read_text()
+        assert "not logging.getLogger().handlers" in env_text, (
+            "env.py must guard fileConfig() on an empty root-logger handler list"
+        )
+
 
 # ---------------------------------------------------------------------------
 # Fix C regression — durable file logging from launch
@@ -441,7 +517,13 @@ def clean_root_logger():
     original_level = root.level
     original_handlers = list(root.handlers)
     root.handlers.clear()
+    # _setup_logging is idempotent via module globals; reset them so each test
+    # exercises a fresh configuration.
+    launcher._LOGGING_CONFIGURED = False
+    launcher._LOG_PATH = None
     yield root
+    launcher._LOGGING_CONFIGURED = False
+    launcher._LOG_PATH = None
     for h in root.handlers:
         try:
             h.close()
@@ -501,3 +583,82 @@ class TestSetupLogging:
             "_setup_logging must appear before first_run_init in main() "
             f"(found at char {setup_pos} vs {init_pos})"
         )
+
+
+# ---------------------------------------------------------------------------
+# Defect 2 regression — a log with a full traceback is written even for an
+# EARLY / import-time failure that occurs before _setup_logging() ran.
+# ---------------------------------------------------------------------------
+
+class TestEarlyFailureLogging:
+    def test_write_fatal_writes_traceback_without_prior_setup(
+        self, tmp_path, monkeypatch, clean_root_logger
+    ):
+        """Simulate an import-time crash BEFORE _setup_logging(): _write_fatal
+        must still create ~/matika/logs/matika-<date>.log with the traceback.
+
+        This is the regression for the mini failure where an alembic ImportError
+        produced NO log file: logging must be guaranteed even pre-main."""
+        from datetime import date as _date
+
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        monkeypatch.setattr("pathlib.Path.home", lambda: fake_home)
+
+        # No _setup_logging() call — _LOG_PATH is None, mimicking a failure that
+        # happens before/at module-import time.
+        assert launcher._LOG_PATH is None
+
+        try:
+            raise ImportError("No module named 'alembic'")
+        except ImportError as exc:
+            tb_text = launcher._write_fatal(exc)
+
+        log_path = fake_home / "matika" / "logs" / f"matika-{_date.today().isoformat()}.log"
+        assert log_path.exists(), "no log file written for an early failure"
+        content = log_path.read_text(encoding="utf-8")
+        assert "FATAL startup failure" in content
+        assert "ImportError" in content
+        assert "No module named 'alembic'" in content
+        assert "Traceback (most recent call last)" in tb_text
+
+    def test_write_fatal_appends_to_configured_log(
+        self, tmp_path, clean_root_logger
+    ):
+        """When logging IS configured, _write_fatal appends the traceback to the
+        same dated file used by the rest of the app."""
+        from datetime import date as _date
+
+        launcher._setup_logging(tmp_path)
+        log_path = tmp_path / "logs" / f"matika-{_date.today().isoformat()}.log"
+
+        try:
+            raise RuntimeError("boom during startup")
+        except RuntimeError as exc:
+            launcher._write_fatal(exc)
+
+        content = log_path.read_text(encoding="utf-8")
+        assert "RuntimeError" in content
+        assert "boom during startup" in content
+
+    def test_excepthook_logs_uncaught_exception(
+        self, tmp_path, monkeypatch, clean_root_logger
+    ):
+        """The installed sys.excepthook writes any uncaught exception's traceback
+        to the dated log (dialog suppressed in the headless test env)."""
+        from datetime import date as _date
+
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        monkeypatch.setattr("pathlib.Path.home", lambda: fake_home)
+        monkeypatch.setattr(launcher, "_show_fatal_dialog", lambda *_a, **_k: None)
+
+        try:
+            raise ValueError("uncaught at top level")
+        except ValueError as exc:
+            launcher._excepthook(type(exc), exc, exc.__traceback__)
+
+        log_path = fake_home / "matika" / "logs" / f"matika-{_date.today().isoformat()}.log"
+        content = log_path.read_text(encoding="utf-8")
+        assert "ValueError" in content
+        assert "uncaught at top level" in content

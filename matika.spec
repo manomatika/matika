@@ -21,6 +21,17 @@ import os
 import re as _re
 import sys as _sys
 
+# collect_all is only importable while PyInstaller is actually driving this
+# spec (the normal `pyinstaller matika.spec` path). The naming/identity unit
+# tests exec this spec source directly in a stubbed namespace WITHOUT
+# PyInstaller installed; guard the import so the spec stays exec-able there.
+# In every real build PyInstaller is present, so the except branch is
+# unreachable and full alembic/sqlalchemy collection always runs.
+try:
+    from PyInstaller.utils.hooks import collect_all
+except ImportError:  # pragma: no cover - only hit by the spec-exec unit tests
+    collect_all = None
+
 # ---------------------------------------------------------------------------
 # Version — read from the VERSION file at spec-build time so the EXE name and
 # version metadata always stay in sync with the repo's single source of truth
@@ -226,12 +237,80 @@ hiddenimports = [
 ]
 
 # ---------------------------------------------------------------------------
+# Full-package collection — alembic + sqlalchemy
+#
+# WHY collect_all and not just hiddenimports: the in-process first-run
+# migration (launcher.py::_run_alembic_upgrade -> alembic.command.upgrade)
+# fails in the frozen bundle with "No module named 'alembic'" because listing
+# "alembic.command"/"alembic.config" as hiddenimports does NOT pull in the
+# rest of the alembic PACKAGE that the migration runtime loads dynamically:
+# alembic.runtime / alembic.ddl dialect modules, alembic.util, the templates/
+# data tree, and the importlib-metadata entry points. collect_all("alembic")
+# returns (datas, binaries, hiddenimports) covering all of it.  sqlalchemy is
+# collected the same way so every dialect/submodule that alembic + the app
+# import lazily (e.g. sqlalchemy.sql.default_comparator) is present.
+#
+# These build on top of the explicit hiddenimports above (kept as a belt-and-
+# suspenders for the specific late imports in _run_alembic_upgrade) and the
+# alembic.ini + migrations/ datas below, which the migration runtime resolves
+# at sys._MEIPASS-relative paths inside the frozen app.
+# ---------------------------------------------------------------------------
+if collect_all is not None:
+    _alembic_datas, _alembic_bins, _alembic_hidden = collect_all("alembic")
+    _sqlalchemy_datas, _sqlalchemy_bins, _sqlalchemy_hidden = collect_all("sqlalchemy")
+
+    datas += _alembic_datas + _sqlalchemy_datas
+    hiddenimports += _alembic_hidden + _sqlalchemy_hidden
+    _collected_binaries = _alembic_bins + _sqlalchemy_bins
+else:  # pragma: no cover - spec exec'd outside a real PyInstaller build
+    _collected_binaries = []
+
+# ---------------------------------------------------------------------------
+# Bundle the ENTIRE matika package.
+#
+# matika submodules are loaded DYNAMICALLY and so are invisible to PyInstaller's
+# static analysis of launcher.py:
+#   - alembic's migrations/env.py runs `from matika.models import Base` when the
+#     in-process first-run migration executes. alembic exec()s env.py at
+#     runtime, so PyInstaller never traces its imports — and matika.models was
+#     consequently NOT frozen, crashing the migration with
+#     "No module named 'matika.models'".
+#   - applugs import assorted matika submodules (security.service,
+#     auth.dependencies, core.utils, ...) when AppLugService loads them.
+#
+# Enumerate every matika module by WALKING the source tree and add them as
+# hiddenimports. We deliberately do NOT import the package to enumerate it
+# (collect_submodules would): importing matika.main fires its module-level
+# init_db()/init_plugins() side effects, which must never run at build time.
+# PyInstaller analyses each hidden import statically (no execution), so this is
+# side-effect-free and freezes the whole package.
+# ---------------------------------------------------------------------------
+def _matika_submodules(src_root):
+    names = []
+    pkg_root = os.path.join(src_root, "matika")
+    for dirpath, _dirs, files in os.walk(pkg_root):
+        if "__pycache__" in dirpath.split(os.sep):
+            continue
+        for fname in files:
+            if not fname.endswith(".py"):
+                continue
+            rel = os.path.relpath(os.path.join(dirpath, fname), src_root)
+            mod = rel[:-3].replace(os.sep, ".")
+            if mod.endswith(".__init__"):
+                mod = mod[: -len(".__init__")]
+            names.append(mod)
+    return names
+
+
+hiddenimports += _matika_submodules(os.path.join(os.path.dirname(SPEC), "src"))
+
+# ---------------------------------------------------------------------------
 # Analysis
 # ---------------------------------------------------------------------------
 a = Analysis(
     ["launcher.py"],
     pathex=[os.path.join(os.path.dirname(SPEC), "src")],
-    binaries=[],
+    binaries=_collected_binaries,
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],
