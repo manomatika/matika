@@ -234,6 +234,12 @@ hiddenimports = [
     "authlib.integrations.starlette_client",
     # Jinja2 extensions
     "jinja2.ext",
+    # eyerate data-provider dependencies — yfinance and curl_cffi are imported
+    # lazily inside YahooScraperEndpoint at call time; PyInstaller's static
+    # analysis of the eyerate applug never sees these imports.
+    "yfinance",
+    "curl_cffi",
+    "curl_cffi.requests",
 ]
 
 # ---------------------------------------------------------------------------
@@ -258,10 +264,12 @@ hiddenimports = [
 if collect_all is not None:
     _alembic_datas, _alembic_bins, _alembic_hidden = collect_all("alembic")
     _sqlalchemy_datas, _sqlalchemy_bins, _sqlalchemy_hidden = collect_all("sqlalchemy")
+    _yfinance_datas, _yfinance_bins, _yfinance_hidden = collect_all("yfinance")
+    _curl_cffi_datas, _curl_cffi_bins, _curl_cffi_hidden = collect_all("curl_cffi")
 
-    datas += _alembic_datas + _sqlalchemy_datas
-    hiddenimports += _alembic_hidden + _sqlalchemy_hidden
-    _collected_binaries = _alembic_bins + _sqlalchemy_bins
+    datas += _alembic_datas + _sqlalchemy_datas + _yfinance_datas + _curl_cffi_datas
+    hiddenimports += _alembic_hidden + _sqlalchemy_hidden + _yfinance_hidden + _curl_cffi_hidden
+    _collected_binaries = _alembic_bins + _sqlalchemy_bins + _yfinance_bins + _curl_cffi_bins
 else:  # pragma: no cover - spec exec'd outside a real PyInstaller build
     _collected_binaries = []
 
