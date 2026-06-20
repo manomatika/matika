@@ -10,7 +10,7 @@ itsdangerous==2.2.0
 anyio==4.13.0
 
 # Authentication & security
-authlib==1.7.0
+authlib==1.7.2
 bcrypt==5.0.0
 cryptography==47.0.0
 passlib[bcrypt]==1.7.4

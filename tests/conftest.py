@@ -1,6 +1,6 @@
 import os
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 from fastapi.testclient import TestClient
 
@@ -93,7 +93,23 @@ def db():
     connection = engine.connect()
     transaction = connection.begin()
     session = TestingSessionLocal(bind=connection)
-    
+
+    # Join the session into the external `transaction` via a SAVEPOINT, and
+    # transparently restart that SAVEPOINT after every commit/rollback the test
+    # (or the app code under test) performs. This is SQLAlchemy's canonical
+    # "join a Session into an external transaction" recipe. Without it, an inner
+    # session.commit() — or an error-path session.rollback() in app code — ends
+    # and deassociates the outer `transaction`, so the teardown rollback below
+    # fires SAWarning("transaction already deassociated from connection"). The
+    # SAVEPOINT keeps the outer transaction associated for the whole test.
+    nested = connection.begin_nested()
+
+    @event.listens_for(session, "after_transaction_end")
+    def _restart_savepoint(sess, trans):
+        nonlocal nested
+        if not nested.is_active:
+            nested = connection.begin_nested()
+
     # We want to start each test with a clean database state.
     from matika.database import init_db, Permission
     session.execute(user_roles.delete())
@@ -105,7 +121,8 @@ def db():
     init_db(session)
 
     yield session
-    
+
+    event.remove(session, "after_transaction_end", _restart_savepoint)
     session.close()
     transaction.rollback()
     connection.close()

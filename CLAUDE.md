@@ -33,8 +33,8 @@ CLAUDE.md must never knowingly contain stale information. Whenever CLAUDE.md is 
 ### Code and test discipline
 
 - **Regression tests are required for every fix.** A bug fix that doesn't include a test that would have caught the bug isn't done.
-- **All tests must pass — 0 failed, 0 skipped, 0 xfail.** No exceptions without explicit user approval. In multi-repo changes, every affected repo's full suite must pass before any PR is opened.
-- **Full-suite, every change, everywhere.** ANY code change — regardless of which repo it lives in — requires the COMPLETE unit-test suite of every affected repo (and any repo whose behavior could be impacted) to be run and pass: 0 failed / 0 skipped / 0 xfail. Run the entire suite, not a subset, before opening any PR.
+- **All tests must RUN IN FULL and pass — 100% clean.** Every affected repo's COMPLETE suite must RUN with nothing excluded, deselected, skipped, or marked integration-only, and pass: 0 failed / 0 skipped / 0 xfail / 0 deselected / 0 warnings. No test may be excluded or filtered and no warning suppressed without the product owner's explicit, per-case approval recorded as a documented rule variation.
+- **Full-suite, every change, everywhere — 100% clean (standing rule 21).** ANY code change, in ANY repo, requires the COMPLETE unit-test suite of every affected repo (and any repo whose behavior could be impacted) to RUN IN FULL — nothing excluded, deselected, skipped, or marked integration-only — and pass 100%: 0 failed / 0 skipped / 0 xfail / 0 deselected / 0 warnings. Eliminate every warning at its ROOT (fix the code or bump the dependency); never blanket-suppress with a `filterwarnings` / `-W ignore` / `-m 'not …'` filter. Use each repo's correct test environment (the uv-managed `.venv`) so a green run is never an env artifact. A change is not done until every suite is 100% clean.
 - **Never weaken or disable security / correctness checks** (CSRF, permission, auth, validation) as a workaround. If a check is producing a wrong answer, fix the call site to satisfy it correctly — never bypass.
 
 ### Repository ecosystem
