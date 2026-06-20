@@ -443,6 +443,35 @@ class TestSpecPluginsDatasEntry:
             "matika.spec must collect_all('sqlalchemy')"
         )
 
+    def test_spec_force_bundles_entire_matika_package(self, monkeypatch):
+        """Defect 1 (layer 2): matika submodules are loaded DYNAMICALLY — alembic
+        migrations/env.py runs `from matika.models import Base`, and applugs
+        import matika.* at load — so the spec must freeze the whole matika
+        package, not just what launcher.py statically reaches. Exec the spec and
+        assert the dynamically-needed modules land in hiddenimports."""
+        from unittest.mock import MagicMock
+
+        for var in ("MATIKA_PRODUCT_NAME", "MATIKA_PRODUCT_VERSION", "CI"):
+            monkeypatch.delenv(var, raising=False)
+        spec_path = Path(__file__).parent.parent / "matika.spec"
+        ns = {
+            "Analysis": lambda *a, **k: MagicMock(),
+            "PYZ": lambda *a, **k: MagicMock(),
+            "EXE": lambda *a, **k: MagicMock(),
+            "COLLECT": lambda *a, **k: MagicMock(),
+            "BUNDLE": lambda *a, **k: MagicMock(),
+            "SPEC": str(spec_path),
+        }
+        exec(compile(spec_path.read_text(), str(spec_path), "exec"), ns)
+        hidden = ns.get("hiddenimports", [])
+        assert "matika.models" in hidden, (
+            "matika.models must be force-bundled (alembic env.py imports it)"
+        )
+        assert "matika.main" in hidden
+        assert any(m.startswith("matika.routers") for m in hidden), (
+            "matika router submodules must be bundled"
+        )
+
 
 # ---------------------------------------------------------------------------
 # Fix C regression — durable file logging from launch

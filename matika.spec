@@ -266,6 +266,45 @@ else:  # pragma: no cover - spec exec'd outside a real PyInstaller build
     _collected_binaries = []
 
 # ---------------------------------------------------------------------------
+# Bundle the ENTIRE matika package.
+#
+# matika submodules are loaded DYNAMICALLY and so are invisible to PyInstaller's
+# static analysis of launcher.py:
+#   - alembic's migrations/env.py runs `from matika.models import Base` when the
+#     in-process first-run migration executes. alembic exec()s env.py at
+#     runtime, so PyInstaller never traces its imports — and matika.models was
+#     consequently NOT frozen, crashing the migration with
+#     "No module named 'matika.models'".
+#   - applugs import assorted matika submodules (security.service,
+#     auth.dependencies, core.utils, ...) when AppLugService loads them.
+#
+# Enumerate every matika module by WALKING the source tree and add them as
+# hiddenimports. We deliberately do NOT import the package to enumerate it
+# (collect_submodules would): importing matika.main fires its module-level
+# init_db()/init_plugins() side effects, which must never run at build time.
+# PyInstaller analyses each hidden import statically (no execution), so this is
+# side-effect-free and freezes the whole package.
+# ---------------------------------------------------------------------------
+def _matika_submodules(src_root):
+    names = []
+    pkg_root = os.path.join(src_root, "matika")
+    for dirpath, _dirs, files in os.walk(pkg_root):
+        if "__pycache__" in dirpath.split(os.sep):
+            continue
+        for fname in files:
+            if not fname.endswith(".py"):
+                continue
+            rel = os.path.relpath(os.path.join(dirpath, fname), src_root)
+            mod = rel[:-3].replace(os.sep, ".")
+            if mod.endswith(".__init__"):
+                mod = mod[: -len(".__init__")]
+            names.append(mod)
+    return names
+
+
+hiddenimports += _matika_submodules(os.path.join(os.path.dirname(SPEC), "src"))
+
+# ---------------------------------------------------------------------------
 # Analysis
 # ---------------------------------------------------------------------------
 a = Analysis(
