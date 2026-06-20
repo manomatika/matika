@@ -21,6 +21,17 @@ import os
 import re as _re
 import sys as _sys
 
+# collect_all is only importable while PyInstaller is actually driving this
+# spec (the normal `pyinstaller matika.spec` path). The naming/identity unit
+# tests exec this spec source directly in a stubbed namespace WITHOUT
+# PyInstaller installed; guard the import so the spec stays exec-able there.
+# In every real build PyInstaller is present, so the except branch is
+# unreachable and full alembic/sqlalchemy collection always runs.
+try:
+    from PyInstaller.utils.hooks import collect_all
+except ImportError:  # pragma: no cover - only hit by the spec-exec unit tests
+    collect_all = None
+
 # ---------------------------------------------------------------------------
 # Version — read from the VERSION file at spec-build time so the EXE name and
 # version metadata always stay in sync with the repo's single source of truth
@@ -226,12 +237,41 @@ hiddenimports = [
 ]
 
 # ---------------------------------------------------------------------------
+# Full-package collection — alembic + sqlalchemy
+#
+# WHY collect_all and not just hiddenimports: the in-process first-run
+# migration (launcher.py::_run_alembic_upgrade -> alembic.command.upgrade)
+# fails in the frozen bundle with "No module named 'alembic'" because listing
+# "alembic.command"/"alembic.config" as hiddenimports does NOT pull in the
+# rest of the alembic PACKAGE that the migration runtime loads dynamically:
+# alembic.runtime / alembic.ddl dialect modules, alembic.util, the templates/
+# data tree, and the importlib-metadata entry points. collect_all("alembic")
+# returns (datas, binaries, hiddenimports) covering all of it.  sqlalchemy is
+# collected the same way so every dialect/submodule that alembic + the app
+# import lazily (e.g. sqlalchemy.sql.default_comparator) is present.
+#
+# These build on top of the explicit hiddenimports above (kept as a belt-and-
+# suspenders for the specific late imports in _run_alembic_upgrade) and the
+# alembic.ini + migrations/ datas below, which the migration runtime resolves
+# at sys._MEIPASS-relative paths inside the frozen app.
+# ---------------------------------------------------------------------------
+if collect_all is not None:
+    _alembic_datas, _alembic_bins, _alembic_hidden = collect_all("alembic")
+    _sqlalchemy_datas, _sqlalchemy_bins, _sqlalchemy_hidden = collect_all("sqlalchemy")
+
+    datas += _alembic_datas + _sqlalchemy_datas
+    hiddenimports += _alembic_hidden + _sqlalchemy_hidden
+    _collected_binaries = _alembic_bins + _sqlalchemy_bins
+else:  # pragma: no cover - spec exec'd outside a real PyInstaller build
+    _collected_binaries = []
+
+# ---------------------------------------------------------------------------
 # Analysis
 # ---------------------------------------------------------------------------
 a = Analysis(
     ["launcher.py"],
     pathex=[os.path.join(os.path.dirname(SPEC), "src")],
-    binaries=[],
+    binaries=_collected_binaries,
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],

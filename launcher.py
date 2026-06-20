@@ -50,6 +50,12 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+# Set once _setup_logging() installs the file handler. The emergency paths
+# below fall back to writing this same file directly if normal logging never
+# got the chance to initialise.
+_LOG_PATH: Path | None = None
+_LOGGING_CONFIGURED = False
+
 
 # ---------------------------------------------------------------------------
 # Path helpers
@@ -107,7 +113,14 @@ def _setup_logging(data_dir: Path) -> None:
     Adds handlers directly to the root logger (does NOT use basicConfig) so
     the call is idempotent-safe across repeated calls in tests and always
     installs the file handler regardless of prior logging state.
+
+    Idempotent: a second call is a no-op so the bootstrap-then-main sequence
+    does not double-install handlers.
     """
+    global _LOG_PATH, _LOGGING_CONFIGURED
+    if _LOGGING_CONFIGURED:
+        return
+
     log_dir = data_dir / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / f"matika-{date.today().isoformat()}.log"
@@ -125,7 +138,96 @@ def _setup_logging(data_dir: Path) -> None:
     root.addHandler(fh)
     root.addHandler(sh)
 
+    _LOG_PATH = log_path
+    _LOGGING_CONFIGURED = True
     logger.info("Matika starting — log: %s", log_path)
+
+
+# ---------------------------------------------------------------------------
+# Last-resort failure capture
+#
+# The user MANDATE: no startup failure may ever be silent. A Finder-launched
+# crash discards stdout/stderr, so the dated log file is the only durable
+# diagnostic surface. These helpers guarantee a traceback reaches that file
+# even for import-time / pre-main failures that occur before — or instead of —
+# normal logging being configured.
+# ---------------------------------------------------------------------------
+
+def _emergency_log_path() -> Path:
+    """Best-effort path to today's log file, creating ~/matika/logs/ if needed.
+
+    Used when a failure happens before _setup_logging() ran (so _LOG_PATH is
+    still None). Never raises: on any error it falls back to ~/matika so the
+    traceback still lands on disk somewhere discoverable.
+    """
+    if _LOG_PATH is not None:
+        return _LOG_PATH
+    try:
+        log_dir = Path.home() / "matika" / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        return log_dir / f"matika-{date.today().isoformat()}.log"
+    except Exception:
+        return Path.home() / "matika" / "startup-failure.log"
+
+
+def _write_fatal(exc: BaseException) -> str:
+    """Write the full traceback of *exc* to the dated log file and return it.
+
+    Tries the configured root logger first (so the record is formatted and
+    flushed like every other line); ALWAYS also appends the raw traceback to
+    the dated log file directly, so the diagnostic survives even if the
+    logging subsystem itself is the thing that failed to initialise.
+    """
+    import traceback as _tb
+
+    tb_text = "".join(_tb.format_exception(type(exc), exc, exc.__traceback__))
+
+    try:
+        logging.getLogger().critical("FATAL startup failure:\n%s", tb_text)
+    except Exception:
+        pass
+
+    try:
+        path = _emergency_log_path()
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write(
+                f"\n{date.today().isoformat()} FATAL startup failure "
+                f"(ManoMatika could not start):\n{tb_text}\n"
+            )
+    except Exception:
+        # Truly last resort — stderr (discarded under Finder, but present in
+        # the CI smoke launch and `open`-from-terminal paths).
+        print(f"FATAL startup failure:\n{tb_text}", file=sys.stderr)
+
+    return tb_text
+
+
+def _show_fatal_dialog(tb_text: str) -> None:
+    """Show the user-facing 'cannot start' dialog with the failure detail."""
+    msg = (
+        "ManoMatika cannot start — an error occurred during launch.\n\n"
+        f"{tb_text.strip().splitlines()[-1] if tb_text.strip() else ''}\n\n"
+        "See the log file in ~/matika/logs/ for the full traceback."
+    )
+    try:
+        import tkinter as tk
+        from tkinter import messagebox
+
+        root = tk.Tk()
+        root.withdraw()
+        messagebox.showerror("ManoMatika — Startup Error", msg)
+        root.destroy()
+    except Exception:
+        print(f"ERROR: {msg}", file=sys.stderr)
+
+
+def _excepthook(exc_type, exc, tb) -> None:
+    """Top-level last-resort hook: log any uncaught exception + show dialog."""
+    if issubclass(exc_type, KeyboardInterrupt):
+        sys.__excepthook__(exc_type, exc, tb)
+        return
+    tb_text = _write_fatal(exc)
+    _show_fatal_dialog(tb_text)
 
 
 # ---------------------------------------------------------------------------
@@ -178,9 +280,18 @@ def _run_alembic_upgrade(data_dir: Path) -> None:
     database_url = f"sqlite:///{db_path}"
 
     alembic_ini = _bundle_path("alembic.ini")
-    logger.info("Running alembic upgrade head — database: %s", db_path)
+    migrations_dir = _bundle_path("migrations")
+    logger.info(
+        "Running alembic upgrade head — database: %s  (ini=%s, migrations=%s)",
+        db_path, alembic_ini, migrations_dir,
+    )
     cfg = AlembicConfig(alembic_ini)
     cfg.set_main_option("sqlalchemy.url", database_url)
+    # Pin script_location to the bundled migrations tree explicitly. alembic.ini
+    # sets `script_location = %(here)s/migrations`, which resolves correctly
+    # inside the frozen bundle, but setting it from sys._MEIPASS here removes
+    # any ambiguity (and guards against a dev-tree-relative resolution).
+    cfg.set_main_option("script_location", migrations_dir)
 
     # migrations/env.py reads DATABASE_URL from the environment; set it for
     # the duration of the upgrade call and restore the previous value after.
@@ -361,4 +472,24 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    # Logging up FIRST — before any risky/heavy import in main() (alembic, the
+    # matika app, plugins, uvicorn). A failure anywhere after this point lands
+    # in ~/matika/logs/matika-<date>.log, satisfying the mandate that NO
+    # startup failure is ever silent.
+    try:
+        _setup_logging(_data_dir())
+    except Exception as _boot_exc:  # logging bootstrap itself failed
+        _write_fatal(_boot_exc)
+
+    # Catch even exceptions raised outside the explicit try/except below
+    # (e.g. in background threads' default hook) as a final backstop.
+    sys.excepthook = _excepthook
+
+    try:
+        main()
+    except SystemExit:
+        raise  # an intentional sys.exit() — already logged at the call site
+    except BaseException as _exc:
+        tb_text = _write_fatal(_exc)
+        _show_fatal_dialog(tb_text)
+        sys.exit(1)

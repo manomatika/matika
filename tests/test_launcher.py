@@ -428,6 +428,21 @@ class TestSpecPluginsDatasEntry:
             "matika.spec hiddenimports is missing alembic.config"
         )
 
+    def test_spec_collects_full_alembic_and_sqlalchemy_packages(self):
+        """Defect 1: hiddenimports alone misses alembic's dynamically-loaded
+        migration runtime and data tree. matika.spec must collect_all() the
+        alembic and sqlalchemy packages so the frozen bundle can run the
+        in-process migration without 'No module named alembic'."""
+        spec_path = Path(__file__).parent.parent / "matika.spec"
+        spec_text = spec_path.read_text()
+        assert "collect_all" in spec_text, "matika.spec is not using collect_all"
+        assert 'collect_all("alembic")' in spec_text, (
+            "matika.spec must collect_all('alembic')"
+        )
+        assert 'collect_all("sqlalchemy")' in spec_text, (
+            "matika.spec must collect_all('sqlalchemy')"
+        )
+
 
 # ---------------------------------------------------------------------------
 # Fix C regression — durable file logging from launch
@@ -441,7 +456,13 @@ def clean_root_logger():
     original_level = root.level
     original_handlers = list(root.handlers)
     root.handlers.clear()
+    # _setup_logging is idempotent via module globals; reset them so each test
+    # exercises a fresh configuration.
+    launcher._LOGGING_CONFIGURED = False
+    launcher._LOG_PATH = None
     yield root
+    launcher._LOGGING_CONFIGURED = False
+    launcher._LOG_PATH = None
     for h in root.handlers:
         try:
             h.close()
@@ -501,3 +522,82 @@ class TestSetupLogging:
             "_setup_logging must appear before first_run_init in main() "
             f"(found at char {setup_pos} vs {init_pos})"
         )
+
+
+# ---------------------------------------------------------------------------
+# Defect 2 regression — a log with a full traceback is written even for an
+# EARLY / import-time failure that occurs before _setup_logging() ran.
+# ---------------------------------------------------------------------------
+
+class TestEarlyFailureLogging:
+    def test_write_fatal_writes_traceback_without_prior_setup(
+        self, tmp_path, monkeypatch, clean_root_logger
+    ):
+        """Simulate an import-time crash BEFORE _setup_logging(): _write_fatal
+        must still create ~/matika/logs/matika-<date>.log with the traceback.
+
+        This is the regression for the mini failure where an alembic ImportError
+        produced NO log file: logging must be guaranteed even pre-main."""
+        from datetime import date as _date
+
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        monkeypatch.setattr("pathlib.Path.home", lambda: fake_home)
+
+        # No _setup_logging() call — _LOG_PATH is None, mimicking a failure that
+        # happens before/at module-import time.
+        assert launcher._LOG_PATH is None
+
+        try:
+            raise ImportError("No module named 'alembic'")
+        except ImportError as exc:
+            tb_text = launcher._write_fatal(exc)
+
+        log_path = fake_home / "matika" / "logs" / f"matika-{_date.today().isoformat()}.log"
+        assert log_path.exists(), "no log file written for an early failure"
+        content = log_path.read_text(encoding="utf-8")
+        assert "FATAL startup failure" in content
+        assert "ImportError" in content
+        assert "No module named 'alembic'" in content
+        assert "Traceback (most recent call last)" in tb_text
+
+    def test_write_fatal_appends_to_configured_log(
+        self, tmp_path, clean_root_logger
+    ):
+        """When logging IS configured, _write_fatal appends the traceback to the
+        same dated file used by the rest of the app."""
+        from datetime import date as _date
+
+        launcher._setup_logging(tmp_path)
+        log_path = tmp_path / "logs" / f"matika-{_date.today().isoformat()}.log"
+
+        try:
+            raise RuntimeError("boom during startup")
+        except RuntimeError as exc:
+            launcher._write_fatal(exc)
+
+        content = log_path.read_text(encoding="utf-8")
+        assert "RuntimeError" in content
+        assert "boom during startup" in content
+
+    def test_excepthook_logs_uncaught_exception(
+        self, tmp_path, monkeypatch, clean_root_logger
+    ):
+        """The installed sys.excepthook writes any uncaught exception's traceback
+        to the dated log (dialog suppressed in the headless test env)."""
+        from datetime import date as _date
+
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        monkeypatch.setattr("pathlib.Path.home", lambda: fake_home)
+        monkeypatch.setattr(launcher, "_show_fatal_dialog", lambda *_a, **_k: None)
+
+        try:
+            raise ValueError("uncaught at top level")
+        except ValueError as exc:
+            launcher._excepthook(type(exc), exc, exc.__traceback__)
+
+        log_path = fake_home / "matika" / "logs" / f"matika-{_date.today().isoformat()}.log"
+        content = log_path.read_text(encoding="utf-8")
+        assert "ValueError" in content
+        assert "uncaught at top level" in content
