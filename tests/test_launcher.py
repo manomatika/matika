@@ -492,6 +492,18 @@ class TestSpecPluginsDatasEntry:
             "matika router submodules must be bundled"
         )
 
+    def test_migrations_env_does_not_clobber_existing_logging(self):
+        """Defect 2 regression: migrations/env.py must NOT call fileConfig when
+        the root logger already has handlers (the in-process launcher case) —
+        fileConfig would replace the launcher's durable ~/matika/logs file
+        handler mid-boot, silently losing startup logging after the first
+        alembic call."""
+        env_path = Path(__file__).parent.parent / "migrations" / "env.py"
+        env_text = env_path.read_text()
+        assert "not logging.getLogger().handlers" in env_text, (
+            "env.py must guard fileConfig() on an empty root-logger handler list"
+        )
+
 
 # ---------------------------------------------------------------------------
 # Fix C regression — durable file logging from launch
