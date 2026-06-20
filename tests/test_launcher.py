@@ -178,78 +178,98 @@ class TestGenerateSecretKey:
 
 
 # ---------------------------------------------------------------------------
-# _run_alembic_upgrade  (Fix A regression — no subprocess / in-process API)
+# _init_database_schema  (create_all + alembic stamp head; in-process, no subprocess)
 # ---------------------------------------------------------------------------
 
-class TestRunAlembicUpgrade:
-    def test_uses_inprocess_alembic_api_not_subprocess(self, tmp_path):
-        """Fix A: _run_alembic_upgrade must call alembic.command.upgrade in-process.
+class TestInitDatabaseSchema:
+    """Defect 1 (layer 3): a FRESH first-run DB must be created via the models'
+    create_all() and then stamped to Alembic head — NOT `alembic upgrade head`,
+    which fails on an empty DB because the initial migration only ADDS indexes to
+    an already-existing permissions table."""
 
-        In a PyInstaller frozen bundle sys.executable IS the app binary; shelling
-        out with [sys.executable, '-m', 'alembic', ...] would re-enter main() and
-        fork-bomb the process tree until EAGAIN.  The fix uses the Python API.
-        """
-        with mock.patch("alembic.command.upgrade") as mock_upgrade, \
-             mock.patch.object(launcher, "_bundle_path", return_value=str(tmp_path / "alembic.ini")):
-            launcher._run_alembic_upgrade(tmp_path)
+    def _patch_db(self):
+        """Patch matika.database.init_db so the test does not need a real DB."""
+        import sys as _sys
+        import types as _types
+        fake_db = _types.ModuleType("matika.database")
+        fake_db.init_db = mock.MagicMock()
+        # Ensure a parent `matika` package exists so the submodule import works.
+        if "matika" not in _sys.modules:
+            pkg = _types.ModuleType("matika")
+            pkg.__path__ = []  # mark as package
+            _sys.modules["matika"] = pkg
+        return mock.patch.dict(_sys.modules, {"matika.database": fake_db}), fake_db
 
-        mock_upgrade.assert_called_once()
-        _cfg, revision = mock_upgrade.call_args[0]
-        assert revision == "head"
-
-    def test_does_not_spawn_subprocess(self, tmp_path):
-        """Fix A: critically, no subprocess.run/Popen calls — sys.executable is
-        the frozen binary in a bundle and shelling out would re-enter main()."""
-        with mock.patch("alembic.command.upgrade"), \
+    def test_creates_schema_then_stamps_head_inprocess(self, tmp_path):
+        """create_all() runs first, then alembic.command.stamp(cfg, 'head') — all
+        in-process (no subprocess, which would re-enter main() and fork-bomb)."""
+        patch_db, fake_db = self._patch_db()
+        with patch_db, \
+             mock.patch("alembic.command.stamp") as mock_stamp, \
              mock.patch.object(launcher, "_bundle_path", return_value=str(tmp_path / "alembic.ini")), \
              mock.patch("subprocess.run") as mock_sub, \
              mock.patch("subprocess.Popen") as mock_popen:
-            launcher._run_alembic_upgrade(tmp_path)
+            launcher._init_database_schema(tmp_path)
 
+        fake_db.init_db.assert_called_once()
+        mock_stamp.assert_called_once()
+        _cfg, revision = mock_stamp.call_args[0]
+        assert revision == "head"
         mock_sub.assert_not_called()
         mock_popen.assert_not_called()
 
+    def test_does_not_call_alembic_upgrade(self, tmp_path):
+        """Regression: upgrade head on a fresh empty DB is the second boot bug —
+        the launcher must stamp, never upgrade, on first run."""
+        patch_db, _ = self._patch_db()
+        with patch_db, \
+             mock.patch("alembic.command.stamp"), \
+             mock.patch("alembic.command.upgrade") as mock_upgrade, \
+             mock.patch.object(launcher, "_bundle_path", return_value=str(tmp_path / "alembic.ini")):
+            launcher._init_database_schema(tmp_path)
+        mock_upgrade.assert_not_called()
+
     def test_sets_sqlalchemy_url_to_data_db(self, tmp_path):
-        """Fix A: the Alembic config must point to ~/matika/data/matika.db."""
         captured: dict = {}
 
         def _capture(cfg, revision):
             captured["url"] = cfg.get_main_option("sqlalchemy.url")
 
-        with mock.patch("alembic.command.upgrade", side_effect=_capture), \
+        patch_db, _ = self._patch_db()
+        with patch_db, \
+             mock.patch("alembic.command.stamp", side_effect=_capture), \
              mock.patch.object(launcher, "_bundle_path", return_value=str(tmp_path / "alembic.ini")):
-            ini = tmp_path / "alembic.ini"
-            ini.write_text("[alembic]\n")
-            launcher._run_alembic_upgrade(tmp_path)
+            (tmp_path / "alembic.ini").write_text("[alembic]\n")
+            launcher._init_database_schema(tmp_path)
 
-        expected = f"sqlite:///{tmp_path / 'data' / 'matika.db'}"
-        assert captured["url"] == expected
+        assert captured["url"] == f"sqlite:///{tmp_path / 'data' / 'matika.db'}"
 
     def test_creates_data_subdirectory(self, tmp_path):
-        with mock.patch("alembic.command.upgrade"), \
+        patch_db, _ = self._patch_db()
+        with patch_db, \
+             mock.patch("alembic.command.stamp"), \
              mock.patch.object(launcher, "_bundle_path", return_value=str(tmp_path / "alembic.ini")):
-            launcher._run_alembic_upgrade(tmp_path)
+            launcher._init_database_schema(tmp_path)
         assert (tmp_path / "data").is_dir()
 
-    def test_database_url_env_scoped_to_call(self, tmp_path, monkeypatch):
-        """Fix A: DATABASE_URL must be set for migrations/env.py during the
-        upgrade call and restored (or removed) on exit so other code is not
-        affected.  The existing sentinel value must be preserved."""
+    def test_database_url_set_before_db_import_and_restored(self, tmp_path, monkeypatch):
+        """DATABASE_URL must be set (so matika.database builds the right engine
+        and env.py sees it) and restored to the prior value on exit."""
         monkeypatch.setenv("DATABASE_URL", "sqlite:///sentinel_value.db")
         captured: dict = {}
 
-        def _capture(cfg, revision):
-            captured["DATABASE_URL_during_upgrade"] = os.environ.get("DATABASE_URL")
-
-        with mock.patch("alembic.command.upgrade", side_effect=_capture), \
+        patch_db, fake_db = self._patch_db()
+        fake_db.init_db.side_effect = lambda: captured.__setitem__(
+            "DATABASE_URL_during", os.environ.get("DATABASE_URL")
+        )
+        with patch_db, \
+             mock.patch("alembic.command.stamp"), \
              mock.patch.object(launcher, "_bundle_path", return_value=str(tmp_path / "alembic.ini")):
-            ini = tmp_path / "alembic.ini"
-            ini.write_text("[alembic]\n")
-            launcher._run_alembic_upgrade(tmp_path)
+            (tmp_path / "alembic.ini").write_text("[alembic]\n")
+            launcher._init_database_schema(tmp_path)
 
         expected_db = str(tmp_path / "data" / "matika.db")
-        assert captured["DATABASE_URL_during_upgrade"] == f"sqlite:///{expected_db}"
-        # After the call, DATABASE_URL must be restored to the original value.
+        assert captured["DATABASE_URL_during"] == f"sqlite:///{expected_db}"
         assert os.environ.get("DATABASE_URL") == "sqlite:///sentinel_value.db"
 
 
@@ -326,14 +346,14 @@ class TestExtractBundledPlugins:
 class TestFirstRunInit:
     def test_writes_sentinel_on_success(self, tmp_path):
         with mock.patch.object(launcher, "_generate_secret_key"), \
-             mock.patch.object(launcher, "_run_alembic_upgrade"), \
+             mock.patch.object(launcher, "_init_database_schema"), \
              mock.patch.object(launcher, "_extract_bundled_plugins"):
             launcher.first_run_init(tmp_path)
         assert (tmp_path / ".initialized").exists()
 
-    def test_no_sentinel_on_alembic_failure(self, tmp_path):
+    def test_no_sentinel_on_schema_failure(self, tmp_path):
         with mock.patch.object(launcher, "_generate_secret_key"), \
-             mock.patch.object(launcher, "_run_alembic_upgrade",
+             mock.patch.object(launcher, "_init_database_schema",
                                side_effect=RuntimeError("db fail")), \
              mock.patch.object(launcher, "_extract_bundled_plugins"):
             with pytest.raises(RuntimeError):
@@ -342,11 +362,11 @@ class TestFirstRunInit:
 
     def test_calls_all_three_steps(self, tmp_path):
         with mock.patch.object(launcher, "_generate_secret_key") as gsk, \
-             mock.patch.object(launcher, "_run_alembic_upgrade") as rau, \
+             mock.patch.object(launcher, "_init_database_schema") as ids, \
              mock.patch.object(launcher, "_extract_bundled_plugins") as ebp:
             launcher.first_run_init(tmp_path)
         gsk.assert_called_once_with(tmp_path / ".env")
-        rau.assert_called_once_with(tmp_path)
+        ids.assert_called_once_with(tmp_path)
         ebp.assert_called_once_with(tmp_path)
 
 
