@@ -24,7 +24,7 @@ CLAUDE.md must never knowingly contain stale information. Whenever CLAUDE.md is 
 
 - **The user does all git review and merges in the browser.** Don't merge PRs, push to main, or tag releases unless explicitly instructed.
 - **Don't stage or commit unless explicitly granted.** The user handles `git add` / `git commit` manually by default. When granted, follow the conventional-commit pattern (`docs:`, `fix:`, `feat:`, `refactor:`, etc.) and include `Closes manomatika/<repo>#N` (fully qualified) where applicable.
-- **Cross-repo issue/PR references must always be fully qualified.** Write `manomatika/matika#N`, `manomatika/eyerate#N`, `manomatika/ahimsa#N` — never a bare `#N` for an issue that lives in a different repo. Bare refs have caused real damage: a misqualified `Closes #11` / `Closes #12` in matika PR #35 closed unrelated issues in another repo's tracker. Bare refs are only safe when the PR and the issue are in the same repo.
+- **Cross-repo issue/PR references must always be fully qualified.** Write `manomatika/matika#N`, `manomatika/eyerate#N`, `manomatika/ahimsa#N` — never a bare `#N` for an issue that lives in a different repo. Bare refs have caused real damage: a misqualified `Closes #11` / `Closes #12` in matika PR #35 closed unrelated issues in another repo's tracker. Bare refs are only safe when the PR and the issue are in the same repo. Cross-repo `Closes` references only cross-link — they do NOT auto-close; close manually after merge.
 - **cc does not run `git merge` locally.** Integration of branches is done by the user via PR merge in the browser. For any local branch updates cc performs, use `git rebase` or `git cherry-pick`. cc may run `rm -rf` ONLY within a repo working directory under `~/dev/projects/` (a clone `~/dev/projects/<repo>/` or a worktree `~/dev/projects/<repo>-<branch>/`) or under `~/dev/projects/cc_output/` — never anywhere else on the filesystem, and never with an unanchored or variable-expanded path that could resolve outside them. Targeted `git rm` for tracked files remains the norm; `rm -rf` is the constrained exception (rule 23).
 - **`VERSION` is the single source of truth** for version metadata in this repo. Never hand-edit version literals in other files; release tooling propagates from `VERSION`.
 - **The user uses git worktrees** for parallel work (e.g. `~/dev/projects/matika-45/` alongside `~/dev/projects/matika/` on a separate branch). At any moment, the user may be operating in any of several working directories for the same repo. Always check the current branch (`git branch --show-current`) and confirm it matches what you expect before assuming.
@@ -323,6 +323,73 @@ Core menus (`src/matika/menus/`) use the same schema: `admin_menus.json` provide
 TypeScript reads these on `DOMContentLoaded`. Hub selection is persisted in `sessionStorage` under a per-user key (`matika_active_hub_<user_id>`) so navigating between pages preserves the selection.
 
 **Default menu preference** is stored in `user_settings` (name=`"default_menu"`, value=hub_id). Priority on page load: `sessionStorage` → user saved preference → system Default.
+
+---
+
+### Screen Data Schema
+
+The screen schema is a standardized format for describing user-facing routes and their interaction model, consumed by Playwright-based test tooling.
+
+#### `ScreenLoaderService` (`src/matika/core/screen_loader.py`)
+
+`ScreenLoaderService(core_screens_dir, plugins_dir)` discovers and loads `*_screens.json` files from two locations:
+
+| Source | Path | Key |
+|---|---|---|
+| Core screens | `src/matika/screens/` | `"core"` |
+| Plugin screens | `plugins/<id>/<id>_screens.json` | `"<plugin_id>"` |
+
+`load_screens()` returns `{source_id: [list of screen entries]}`. Core screens are assembled by merging all `*_screens.json` files in `core_screens_dir` into a single `"core"` list. Plugin screens expect exactly one `*_screens.json` per plugin directory. Result is cached; call `invalidate_cache()` to reset.
+
+**Fail-loud on duplicate `screen_id`.** Any `screen_id` that appears in more than one source raises `RuntimeError` at load time — startup aborts on any duplicate.
+
+#### `*_screens.json` schema v1.0
+
+```json
+{
+  "schema_version": "1.0",
+  "screens": [
+    {
+      "screen_id": "unique-id",
+      "type": "screen",
+      "route": "/path",
+      "markers": [".css-selector", "#element-id"],
+      "steps": [
+        {"verb": "navigate", "target": "/path"}
+      ]
+    },
+    {
+      "screen_id": "unique-id",
+      "type": "not_a_screen",
+      "route": "/path",
+      "reason": "POST-only handler; no user-facing HTML"
+    }
+  ]
+}
+```
+
+**Entry types:**
+
+| Type | Required fields | Purpose |
+|---|---|---|
+| `"screen"` | `screen_id`, `markers`, `steps` | A user-facing page; `markers` are CSS selectors that identify it; `steps` are the interaction sequence |
+| `"not_a_screen"` | `screen_id`, `reason` | A route explicitly excluded from screen testing (e.g. POST-only handlers) |
+
+**Interaction verb allow-list** (`navigate` / `fill` / `click` / `wait_for` / `assert_present` / `assert_absent` / `assert_value`) — data-driven; no code changes needed to add interaction sequences. Files with `schema_version` other than `"1.0"` are skipped with a warning.
+
+#### `src/matika/screens/matika_screens.json`
+
+Framework-owned core screen definitions. Covers the standard matika routes (`/`, `/about`, `/login`, `/register`, `/settings`, `/admin`, etc.). Plugins contribute their own `*_screens.json` alongside their plugin directory (e.g. `eyerate_screens.json` in the eyerate plugin directory).
+
+#### `[ROUTES:...]` startup log marker
+
+After `AppLugService.discover()` loads plugins, `init_plugins()` (main.py) calls `_collect_screen_routes()` and emits:
+
+```
+[ROUTES: /about, /admin, /admin/..., /eyerate/admin, /eyerate/securities, ...]
+```
+
+`_collect_screen_routes()` is the non-screen pre-filter: it iterates all registered FastAPI routes and includes only `APIRoute` GET routes, excluding `Mount` routes (like `/static`), paths in `_NON_SCREEN_PATHS` (`/openapi.json`, `/docs`, `/redoc`), and paths ending in `.json`. The logged list is the sorted set of candidate user-facing routes.
 
 ---
 
