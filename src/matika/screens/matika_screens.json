@@ -1,0 +1,308 @@
+{
+  "schema_version": "1.0",
+  "screens": [
+    {
+      "screen_id": "home",
+      "type": "screen",
+      "route": "/",
+      "markers": ["#app-selector", ".dashboard-container", "#main-content"],
+      "steps": [
+        {"verb": "navigate", "target": "/"}
+      ]
+    },
+    {
+      "screen_id": "about",
+      "type": "screen",
+      "route": "/about",
+      "markers": [".about-page", "#about-container"],
+      "steps": [
+        {"verb": "navigate", "target": "/about"}
+      ]
+    },
+    {
+      "screen_id": "login",
+      "type": "screen",
+      "route": "/login",
+      "markers": ["#login-form", "form[action='/login']"],
+      "steps": [
+        {"verb": "navigate", "target": "/login"}
+      ]
+    },
+    {
+      "screen_id": "login_post",
+      "type": "not_a_screen",
+      "route": "/login",
+      "reason": "POST endpoint — processes login form submission and redirects; not a user-facing screen"
+    },
+    {
+      "screen_id": "logout",
+      "type": "not_a_screen",
+      "route": "/logout",
+      "reason": "GET redirect-only endpoint — clears session and redirects to home; no HTML rendered"
+    },
+    {
+      "screen_id": "register",
+      "type": "screen",
+      "route": "/register",
+      "markers": ["form[action='/register']", "#register-form"],
+      "steps": [
+        {"verb": "navigate", "target": "/register"}
+      ]
+    },
+    {
+      "screen_id": "register_post",
+      "type": "not_a_screen",
+      "route": "/register",
+      "reason": "POST endpoint — processes registration form submission and redirects; not a user-facing screen"
+    },
+    {
+      "screen_id": "forgot_password",
+      "type": "screen",
+      "route": "/forgot-password",
+      "markers": ["form[action='/forgot-password']", "#forgot-password-form"],
+      "steps": [
+        {"verb": "navigate", "target": "/forgot-password"}
+      ]
+    },
+    {
+      "screen_id": "forgot_password_post",
+      "type": "not_a_screen",
+      "route": "/forgot-password",
+      "reason": "POST endpoint — processes forgot-password form submission; not a user-facing screen"
+    },
+    {
+      "screen_id": "change_password",
+      "type": "screen",
+      "route": "/change-password",
+      "markers": ["form[action='/change-password']", "#change-password-form"],
+      "steps": [
+        {"verb": "navigate", "target": "/change-password"}
+      ]
+    },
+    {
+      "screen_id": "change_password_post",
+      "type": "not_a_screen",
+      "route": "/change-password",
+      "reason": "POST endpoint — processes forced password change form submission and redirects; not a user-facing screen"
+    },
+    {
+      "screen_id": "admin_roles",
+      "type": "screen",
+      "route": "/admin/roles",
+      "markers": [".roles-table", "#roles-container", "table.roles"],
+      "steps": [
+        {"verb": "navigate", "target": "/admin/roles"}
+      ]
+    },
+    {
+      "screen_id": "admin_roles_create",
+      "type": "not_a_screen",
+      "route": "/admin/roles/create",
+      "reason": "POST endpoint — creates a role and redirects to /admin/roles; not a user-facing screen"
+    },
+    {
+      "screen_id": "admin_roles_update",
+      "type": "not_a_screen",
+      "route": "/admin/roles/update/{role_id}",
+      "reason": "POST endpoint — updates a role and redirects to /admin/roles; not a user-facing screen"
+    },
+    {
+      "screen_id": "admin_roles_delete",
+      "type": "not_a_screen",
+      "route": "/admin/roles/delete/{role_id}",
+      "reason": "POST endpoint — deletes a role and redirects to /admin/roles; not a user-facing screen"
+    },
+    {
+      "screen_id": "admin_permissions",
+      "type": "screen",
+      "route": "/admin/permissions",
+      "markers": [".permissions-table", "#permissions-container"],
+      "steps": [
+        {"verb": "navigate", "target": "/admin/permissions"}
+      ]
+    },
+    {
+      "screen_id": "admin_permissions_create",
+      "type": "not_a_screen",
+      "route": "/admin/permissions/create",
+      "reason": "POST endpoint — creates a permission entry and redirects to /admin/permissions; not a user-facing screen"
+    },
+    {
+      "screen_id": "admin_permissions_delete_subject",
+      "type": "not_a_screen",
+      "route": "/admin/permissions/delete-subject",
+      "reason": "POST endpoint — removes a permission subject and redirects to /admin/permissions; not a user-facing screen"
+    },
+    {
+      "screen_id": "admin_users",
+      "type": "screen",
+      "route": "/admin/users",
+      "markers": [".users-table", "#users-container", "table.users"],
+      "steps": [
+        {"verb": "navigate", "target": "/admin/users"}
+      ]
+    },
+    {
+      "screen_id": "admin_users_create",
+      "type": "not_a_screen",
+      "route": "/admin/users/create",
+      "reason": "POST endpoint — creates a user and redirects to /admin/users; not a user-facing screen"
+    },
+    {
+      "screen_id": "admin_users_update",
+      "type": "not_a_screen",
+      "route": "/admin/users/update/{user_id}",
+      "reason": "POST endpoint — updates a user and redirects to /admin/users; not a user-facing screen"
+    },
+    {
+      "screen_id": "admin_users_force_password_change",
+      "type": "not_a_screen",
+      "route": "/admin/users/force-password-change/{user_id}",
+      "reason": "POST endpoint — flags a user for forced password change and redirects; not a user-facing screen"
+    },
+    {
+      "screen_id": "admin_users_delete",
+      "type": "not_a_screen",
+      "route": "/admin/users/delete/{user_id}",
+      "reason": "POST endpoint — deletes a user and redirects to /admin/users; not a user-facing screen"
+    },
+    {
+      "screen_id": "admin_data_export",
+      "type": "screen",
+      "route": "/admin/settings/export",
+      "markers": ["form[action='/admin/settings/export']", "#export-form"],
+      "steps": [
+        {"verb": "navigate", "target": "/admin/settings/export"}
+      ]
+    },
+    {
+      "screen_id": "admin_data_export_post",
+      "type": "not_a_screen",
+      "route": "/admin/settings/export",
+      "reason": "POST endpoint — streams a JSON file download (JSONResponse with Content-Disposition); not a user-facing HTML screen"
+    },
+    {
+      "screen_id": "admin_data_import",
+      "type": "screen",
+      "route": "/admin/settings/import",
+      "markers": ["form[action='/admin/settings/import']", "#import-form"],
+      "steps": [
+        {"verb": "navigate", "target": "/admin/settings/import"}
+      ]
+    },
+    {
+      "screen_id": "admin_data_import_post",
+      "type": "not_a_screen",
+      "route": "/admin/settings/import",
+      "reason": "POST endpoint — processes system data import file upload and redirects; not a user-facing screen"
+    },
+    {
+      "screen_id": "user_settings",
+      "type": "screen",
+      "route": "/settings/user",
+      "markers": ["#user-settings-form", ".user-settings-container"],
+      "steps": [
+        {"verb": "navigate", "target": "/settings/user"}
+      ]
+    },
+    {
+      "screen_id": "user_change_username",
+      "type": "screen",
+      "route": "/settings/user/change-username",
+      "markers": ["form[action='/settings/user/change-username']", "#change-username-form"],
+      "steps": [
+        {"verb": "navigate", "target": "/settings/user/change-username"}
+      ]
+    },
+    {
+      "screen_id": "user_change_username_post",
+      "type": "not_a_screen",
+      "route": "/settings/user/change-username",
+      "reason": "POST endpoint — processes username change and redirects to /settings/user; not a user-facing screen"
+    },
+    {
+      "screen_id": "user_change_password",
+      "type": "screen",
+      "route": "/settings/user/change-password",
+      "markers": ["form[action='/settings/user/change-password']", "#user-change-password-form"],
+      "steps": [
+        {"verb": "navigate", "target": "/settings/user/change-password"}
+      ]
+    },
+    {
+      "screen_id": "user_change_password_post",
+      "type": "not_a_screen",
+      "route": "/settings/user/change-password",
+      "reason": "POST endpoint — processes voluntary password change and redirects to /settings/user; not a user-facing screen"
+    },
+    {
+      "screen_id": "user_default_menu_post",
+      "type": "not_a_screen",
+      "route": "/settings/user/default-menu",
+      "reason": "POST endpoint — saves user default menu preference and redirects; not a user-facing screen"
+    },
+    {
+      "screen_id": "user_photo",
+      "type": "not_a_screen",
+      "route": "/settings/user/photo/{user_id}",
+      "reason": "GET endpoint — serves raw image bytes (Response with image MIME type); not an HTML screen"
+    },
+    {
+      "screen_id": "user_upload_photo_post",
+      "type": "not_a_screen",
+      "route": "/settings/user/upload-photo",
+      "reason": "POST endpoint — handles photo file upload and redirects; not a user-facing screen"
+    },
+    {
+      "screen_id": "settings_export",
+      "type": "screen",
+      "route": "/settings/export",
+      "markers": ["form[action='/settings/export']", "#user-export-form"],
+      "steps": [
+        {"verb": "navigate", "target": "/settings/export"}
+      ]
+    },
+    {
+      "screen_id": "settings_export_post",
+      "type": "not_a_screen",
+      "route": "/settings/export",
+      "reason": "POST endpoint — streams a JSON file download (JSONResponse with Content-Disposition); not a user-facing HTML screen"
+    },
+    {
+      "screen_id": "settings_import",
+      "type": "screen",
+      "route": "/settings/import",
+      "markers": ["form[action='/settings/import']", "#user-import-form"],
+      "steps": [
+        {"verb": "navigate", "target": "/settings/import"}
+      ]
+    },
+    {
+      "screen_id": "settings_import_post",
+      "type": "not_a_screen",
+      "route": "/settings/import",
+      "reason": "POST endpoint — processes user data import file upload and redirects; not a user-facing screen"
+    },
+    {
+      "screen_id": "system_settings",
+      "type": "screen",
+      "route": "/settings/system",
+      "markers": ["form[action='/settings/system']", "#system-settings-form"],
+      "steps": [
+        {"verb": "navigate", "target": "/settings/system"}
+      ]
+    },
+    {
+      "screen_id": "system_settings_post",
+      "type": "not_a_screen",
+      "route": "/settings/system",
+      "reason": "POST endpoint — saves system settings and redirects to /settings/system; not a user-facing screen"
+    },
+    {
+      "screen_id": "show_log",
+      "type": "not_a_screen",
+      "route": "/show-log",
+      "reason": "GET endpoint — returns plain-text log content (PlainTextResponse); not an HTML screen"
+    }
+  ]
+}
