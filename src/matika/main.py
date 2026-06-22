@@ -3,10 +3,12 @@ import os
 import secrets
 from fastapi import FastAPI, Request, Depends
 from fastapi.responses import HTMLResponse, PlainTextResponse, Response
+from fastapi.routing import APIRoute
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.sessions import SessionMiddleware
+from starlette.routing import Mount
 from sqlalchemy.orm import Session
 
 # Local Imports
@@ -33,6 +35,28 @@ if not SECRET_KEY:
         "CRITICAL: SECRET_KEY environment variable is not set. "
         "The application cannot start. Set it in your environment or .env file."
     )
+
+
+_NON_SCREEN_PATHS = {"/openapi.json", "/docs", "/redoc"}
+
+
+def _collect_screen_routes(app_instance: FastAPI) -> list[str]:
+    """Return sorted list of user-facing GET routes, excluding infra/doc/static paths."""
+    paths = []
+    for route in app_instance.routes:
+        if isinstance(route, Mount):
+            continue
+        if not isinstance(route, APIRoute):
+            continue
+        path = route.path
+        if path in _NON_SCREEN_PATHS:
+            continue
+        if path.endswith(".json"):
+            continue
+        if not (route.methods and "GET" in route.methods):
+            continue
+        paths.append(path)
+    return sorted(paths)
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -171,6 +195,8 @@ def init_plugins(app_instance: FastAPI, db: Session):
     logger.info("Discovering plugins...")
     app_instance.state.app_lug_service.discover(db)
     logger.info(f"Loaded plugins: {len(app_instance.state.app_lug_service.loaded_plugins)}")
+    screen_routes = _collect_screen_routes(app_instance)
+    logger.info(f"[ROUTES: {', '.join(screen_routes)}]")
 
 
 # Initialize database & cleanup logs for real runs
