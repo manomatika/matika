@@ -1,9 +1,5 @@
 # CLAUDE.md — matika (plugin-agnostic FastAPI framework)
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
-## What this is
-
 matika is the **plugin-agnostic FastAPI framework** — the core has zero knowledge of any business domain. Domain logic lives entirely in plugins called **AppLugs**. The shipped PRODUCT it composes into is **ManoMatika** (proper noun), named by the recipe's `application.product_name` (owned by `manomatika/manomatika`). User-facing runtime surfaces use `ManoMatika`; the internal repo, Python package, data dir (`~/matika/`), and env vars (`MATIKA_*`) stay lowercase `matika`. matika ships notes-only GitHub releases — no installer; the single hosted installer is built by ahimsa and attached to the `manomatika/manomatika` product release.
 
 ## Working Style & Discipline
@@ -113,6 +109,12 @@ export $(cat .env | grep -v '^#' | xargs)
 PYTHONPATH=src uvicorn matika.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
+Why each part is needed:
+- `source .venv/bin/activate` — required; puts `venv/bin/` on PATH so `uvicorn` and all dependencies are found
+- `export $(cat .env | grep -v '^#' | xargs)` — loads `SECRET_KEY` (and any other vars) from `.env` into the shell (`grep -v '^#'` strips comment lines)
+- `PYTHONPATH=src` — tells Python where to find the `matika` package
+- `--reload` — auto-restarts the server on file changes
+
 ### Build TypeScript
 ```bash
 npm run build   # compiles src/frontend/*.ts → src/matika/static/js/
@@ -183,8 +185,6 @@ For Frozen App (boot/plugin-lifecycle) detail, see [docs/frozen-app.md](docs/fro
 `tests/conftest.py` wires up a session-scoped test database (`data/test_matika.db`) using `MATIKA_PLUGINS_DIR` to point at a pytest-managed temp dir. The mock plugin in `tests/plugins/mock_plugin/` is copied there at session start — the real `plugins/` directory is never touched. Tests use `TestClient` (no async runner). `SECRET_KEY` is set in `conftest.py` before any app import.
 
 For Release Pipeline, see [docs/release-pipeline.md](docs/release-pipeline.md). For npm Package Publishing, see [docs/npm-publishing.md](docs/npm-publishing.md).
-
----
 
 ### Standing Rules
 
