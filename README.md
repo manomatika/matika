@@ -71,4 +71,5 @@ The frontend TypeScript base classes (`MaintenanceActivityManager`, CSRF helpers
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Full technical architecture, persistence layer, security model |
 
 ## License
-Copyright (c) 2026 Patrick James Tallman. All Rights Reserved.
+
+ManoMatika is **source-available, not open-source**. Copyright (c) 2026 Patrick James Tallman. All rights reserved. The source is published for reference and transparency only; no usage, copying, modification, redistribution, or deployment rights are granted without a written agreement. See [LICENSE](LICENSE).
