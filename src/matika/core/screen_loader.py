@@ -152,6 +152,21 @@ class ScreenLoaderService:
                         f"Screen entry '{entry.get('screen_id')}' in {path} "
                         f"has type 'screen' but is missing required 'markers' field"
                     )
+                # Validate optional required_markers field.
+                required_markers = entry.get("required_markers")
+                if required_markers is not None:
+                    if not isinstance(required_markers, list):
+                        raise ValueError(
+                            f"Screen entry '{entry.get('screen_id')}' in {path} "
+                            f"has 'required_markers' that is not a list"
+                        )
+                    markers = entry.get("markers", [])
+                    for sel in required_markers:
+                        if sel not in markers:
+                            raise ValueError(
+                                f"Screen entry '{entry.get('screen_id')}' in {path} "
+                                f"has 'required_markers' entry '{sel}' that is not in 'markers'"
+                            )
                 steps = entry.get("steps")
                 if not isinstance(steps, list):
                     raise ValueError(
