@@ -192,6 +192,6 @@ General working discipline (tests, git, security checks, cross-repo refs, etc.) 
 - Always add unit tests for new functionality; update existing tests for changed behaviour.
 - Never hardcode `SECRET_KEY` — read from environment only.
 - Never modify the production DB during testing.
-- EyeRate-specific dependencies (`yfinance`, `curl_cffi`) belong in `eyerate/requirements.txt`, not in Matika's `requirements.txt`.
+- EyeRate-specific dependencies (`yfinance`, `curl_cffi`) belong in `eyerate/pyproject.toml`, not in Matika's `pyproject.toml`.
 - AppLug version compatibility is decided on the bare version core only (suffix stripped from both sides); there is no `MATIKA_ENV` escape hatch.
 - Standard Python `.gitignore` (GitHub's official Python template) is in place: covers `__pycache__/`, build/dist, `*.egg-info/`, `.pytest_cache/`, `.coverage`, `htmlcov/`, venv variants, `.tox/`, and OS/IDE noise. Never commit compiled artifacts.

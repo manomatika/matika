@@ -11,9 +11,9 @@ def check_environment():
     
     # 1. Check for necessary configuration files
     required_files = [
-        "VERSION", 
+        "VERSION",
         "src/matika/locales/translations.json",
-        "requirements.txt"
+        "pyproject.toml",
     ]
     for file in required_files:
         if not os.path.exists(file):

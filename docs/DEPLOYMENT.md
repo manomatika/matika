@@ -46,7 +46,7 @@ git clone https://github.com/manomatika/matika.git && cd matika
 
 # 2. Python environment
 uv venv && source .venv/bin/activate
-uv pip install -r requirements.txt
+uv sync
 
 # 3. Frontend
 npm install && npm run build
@@ -185,7 +185,7 @@ git clone https://github.com/manomatika/matika.git && cd matika
 
 # Python environment
 uv venv && source .venv/bin/activate
-uv pip install -r requirements.txt
+uv sync
 
 # Frontend
 npm install && npm run build

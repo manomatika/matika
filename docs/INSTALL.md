@@ -51,7 +51,7 @@ source .venv/bin/activate        # macOS/Linux
 .venv\Scripts\activate           # Windows
 
 # 3. Python dependencies
-uv pip install -r requirements.txt
+uv sync
 
 # 4. Frontend build
 npm install

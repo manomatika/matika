@@ -10,7 +10,6 @@ from datetime import datetime
 LOG_DIR = "logs"
 INSTALL_LOG = os.path.join(LOG_DIR, "install.log")
 VENV_DIR = ".venv"
-REQUIREMENTS_FILE = "requirements.txt"
 
 # --- LOGGING SETUP ---
 if not os.path.exists(LOG_DIR):
@@ -123,10 +122,10 @@ def main():
 
     # Install Python Dependencies
     if has_uv:
-        if not run_command("uv pip install -r requirements.txt"): sys.exit(1)
+        if not run_command("uv sync"): sys.exit(1)
     else:
         if not run_command(f"{venv_pip} install --upgrade pip"): sys.exit(1)
-        if not run_command(f"{venv_pip} install -r {REQUIREMENTS_FILE}"): sys.exit(1)
+        if not run_command(f"{venv_pip} install -e ."): sys.exit(1)
 
     # 3. Build Frontend (Step 3)
     logger.info("--- Step 3: Building Frontend Assets ---")

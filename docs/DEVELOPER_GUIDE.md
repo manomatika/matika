@@ -28,7 +28,7 @@ In dev, the three repos are cloned as siblings (e.g. `~/dev/projects/matika`, `~
 
 ### First-time setup (per machine)
 
-These steps run once. After the first run, `.venv/` exists, dependencies are installed, and the frontend is compiled — you only repeat them when something changes (`requirements.txt`, `package.json`, model migrations).
+These steps run once. After the first run, `.venv/` exists, dependencies are installed, and the frontend is compiled — you only repeat them when something changes (`pyproject.toml`, `package.json`, model migrations).
 
 ```bash
 # Clone the framework
@@ -38,7 +38,7 @@ cd matika
 # Create the venv (one time only)
 uv venv
 source .venv/bin/activate
-uv pip install -r requirements.txt
+uv sync
 
 # Frontend
 npm install

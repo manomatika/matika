@@ -33,7 +33,7 @@ See [Architecture Overview](docs/ARCHITECTURE.md) for the full technical design.
 ```bash
 # Setup
 uv venv && source .venv/bin/activate
-uv pip install -r requirements.txt
+uv sync
 npm install && npm run build
 
 # Required: generate a secret key
