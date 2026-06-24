@@ -488,7 +488,6 @@ dependencies = [
     { name = "cryptography" },
     { name = "fastapi" },
     { name = "httpx" },
-    { name = "httpx2" },
     { name = "itsdangerous" },
     { name = "jinja2" },
     { name = "passlib", extra = ["bcrypt"] },
@@ -507,6 +506,7 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "anyio" },
+    { name = "httpx2" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
@@ -521,7 +521,6 @@ requires-dist = [
     { name = "cryptography", specifier = ">=47.0.0" },
     { name = "fastapi", specifier = ">=0.136.1" },
     { name = "httpx", specifier = ">=0.28.1" },
-    { name = "httpx2", specifier = ">=2.0.0" },
     { name = "itsdangerous", specifier = ">=2.2.0" },
     { name = "jinja2", specifier = ">=3.1.6" },
     { name = "passlib", extras = ["bcrypt"], specifier = ">=1.7.4" },
@@ -540,6 +539,7 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "anyio", specifier = ">=4.13.0" },
+    { name = "httpx2", specifier = ">=2.0.0" },
     { name = "pytest", specifier = ">=9.1.1" },
     { name = "pytest-asyncio", specifier = ">=1.4.0" },
     { name = "pytest-cov", specifier = ">=7.1.0" },
