@@ -111,13 +111,20 @@ naming any applug.
       "description": "Human-readable description of what is verified",
       "module": "<applug>_functional_tests",
       "function": "test_<name>",
+      "setup": "setup_<name>",
+      "teardown": "teardown_<name>",
       "tags": ["network"]
     }
   ]
 }
 ```
 
-Required fields: `test_id`, `description`, `module`, `function`. `tags` is optional.
+Required fields: `test_id`, `description`, `module`, `function`. Optional fields:
+`setup`, `teardown` (function names in the same `module`, same
+`(base_url, session)` signature), and `tags`. When declared, `setup` ARRANGES
+the test's preconditions before the body runs; `teardown` RESETS what the test
+mutated and is GUARANTEED to run even when the body raises (try/finally). A test
+that cannot reset its own mutation is a DEFECT — it is never rebooted-around.
 
 #### `<applug>_functional_tests.py` — Python implementation
 
@@ -135,11 +142,23 @@ def test_<name>(base_url: str, session) -> None:
 
 #### Discovery and invocation (gate side — ahimsa)
 
-1. Walk source clone for `*_functional_tests.json` (same discovery pattern as `*_screens.json`)
-2. Parse each JSON; enumerate `test_id` / `module` / `function` declarations
-3. Import `module` from the source clone using `importlib`
-4. Call `function(base_url=product_url, session=auth_session)`
-5. Any `AssertionError` → gate fails with non-zero exit
+The mechanics below are owned by the ahimsa gate; matika owns only the schema
+and constants above. The gate is reboot-per-applug:
+
+1. Walk a SHA-pinned source clone for `*_functional_tests.json` (same discovery
+   pattern as `*_screens.json`); test code never ships in the frozen artifact
+2. Parse each JSON; enumerate `test_id` / `module` / `function` (and optional
+   `setup` / `teardown`) declarations, grouped by AppLug
+3. Boot a fresh product per AppLug in a clean HOME, then run that AppLug's tests
+   in randomized (seeded) order; the base seed is logged as `L3 random seed:
+   <seed>` and replayable via `--l3-seed`
+4. Import `module` from the source clone using `importlib`; for each test run
+   the declared `setup` (if any), then `function(base_url=product_url,
+   session=auth_session)`, then the declared `teardown` (if any) under
+   guaranteed-run try/finally
+5. Any `AssertionError` → gate fails with non-zero exit; tear down and move to
+   the next AppLug (reboot is coarse containment BETWEEN AppLugs only — no
+   within-AppLug reboot)
 
 The gate runs ONLY declared tests (those listed in the JSON manifest). Test
 functions present in the `.py` file but not declared in the JSON are NOT
