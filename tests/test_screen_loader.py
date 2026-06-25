@@ -486,6 +486,59 @@ class TestPluginDiscovery:
 
 
 # ---------------------------------------------------------------------------
+# required_markers validation
+# ---------------------------------------------------------------------------
+
+class TestRequiredMarkersValidation:
+    def test_absent_required_markers_defaults_to_empty(self, tmp_path):
+        """A screen with no required_markers loads fine; entry has no required_markers key OR empty list."""
+        core_dir = tmp_path / "screens"
+        core_dir.mkdir()
+        write_screens_file(
+            core_dir / "home_screens.json",
+            [make_screen("home", markers=[".main", ".nav"])],
+        )
+        loader = ScreenLoaderService(str(core_dir), "/tmp/nonexistent")
+        result = loader.load_screens()
+        entry = result["core"][0]
+        # Either key is absent or it is an empty list — both are acceptable.
+        assert "required_markers" not in entry or entry["required_markers"] == []
+
+    def test_valid_required_markers_subset_accepted(self, tmp_path):
+        """required_markers that is a subset of markers loads without error."""
+        core_dir = tmp_path / "screens"
+        core_dir.mkdir()
+        screen = make_screen("dashboard", markers=[".main", ".nav"])
+        screen["required_markers"] = [".main"]
+        write_screens_file(core_dir / "dash_screens.json", [screen])
+        loader = ScreenLoaderService(str(core_dir), "/tmp/nonexistent")
+        result = loader.load_screens()
+        assert result["core"][0]["screen_id"] == "dashboard"
+
+    def test_required_markers_not_in_markers_raises(self, tmp_path):
+        """required_markers entry not in markers raises ValueError with the bad selector."""
+        core_dir = tmp_path / "screens"
+        core_dir.mkdir()
+        screen = make_screen("page", markers=[".main"])
+        screen["required_markers"] = [".missing"]
+        write_screens_file(core_dir / "page_screens.json", [screen])
+        loader = ScreenLoaderService(str(core_dir), "/tmp/nonexistent")
+        with pytest.raises(ValueError, match=r"\.missing"):
+            loader.load_screens()
+
+    def test_required_markers_must_be_list_raises(self, tmp_path):
+        """required_markers as a string (not list) raises ValueError."""
+        core_dir = tmp_path / "screens"
+        core_dir.mkdir()
+        screen = make_screen("page", markers=[".main"])
+        screen["required_markers"] = ".main"  # string, not list
+        write_screens_file(core_dir / "page_screens.json", [screen])
+        loader = ScreenLoaderService(str(core_dir), "/tmp/nonexistent")
+        with pytest.raises(ValueError):
+            loader.load_screens()
+
+
+# ---------------------------------------------------------------------------
 # Core dir merge: multiple *_screens.json files → single "core" list
 # ---------------------------------------------------------------------------
 

@@ -51,6 +51,28 @@ The screen schema is a standardized format for describing user-facing routes and
 
 **Interaction verb allow-list** (`navigate` / `fill` / `click` / `wait_for` / `assert_present` / `assert_absent` / `assert_value`) — data-driven; no code changes needed to add interaction sequences. Files with `schema_version` other than `"1.0"` are skipped with a warning.
 
+#### Marker-match semantics
+
+`markers` uses **ANY-PRESENT** semantics by default: the screen check passes if
+at least one declared marker is found in the rendered page. This is intentional —
+some markers are layout-conditional.
+
+To require that specific markers are ALL present, add an optional
+`required_markers` list — a subset of `markers`:
+
+```json
+{
+  "screen_id": "eyerate:admin",
+  "markers": ["#eyerate-admin-form", ".admin-provider-section"],
+  "required_markers": ["#eyerate-admin-form"],
+  ...
+}
+```
+
+`required_markers` must be a (possibly empty) subset of `markers`. Any selector
+listed there MUST be present for the screen check to pass. Omitting
+`required_markers` (the default) leaves all markers under ANY-PRESENT semantics.
+
 #### `src/matika/screens/matika_screens.json`
 
 Framework-owned core screen definitions. Covers the standard matika routes (`/`, `/about`, `/login`, `/register`, `/settings`, `/admin`, etc.). Plugins contribute their own `*_screens.json` alongside their plugin directory (e.g. `eyerate_screens.json` in the eyerate plugin directory).
@@ -64,3 +86,61 @@ After `AppLugService.discover()` loads plugins, `init_plugins()` (main.py) calls
 ```
 
 `_collect_screen_routes()` is the non-screen pre-filter: it iterates all registered FastAPI routes and includes only `APIRoute` GET routes, excluding `Mount` routes (like `/static`), paths in `_NON_SCREEN_PATHS` (`/openapi.json`, `/docs`, `/redoc`), and paths ending in `.json`. The logged list is the sorted set of candidate user-facing routes.
+
+### Layer 3 – Applug functional tests
+
+Layer-3 functional tests let an applug declare behaviors that the generic
+product gate can invoke against the frozen, booted product — without the gate
+naming any applug.
+
+#### Contract constants (canonical in `src/matika/core/functional_test_contract.py`)
+
+| Constant | Value | Purpose |
+|---|---|---|
+| `FUNCTIONAL_TEST_SCHEMA` | `"1.0"` | JSON manifest schema version |
+| `FUNCTIONAL_TESTS_SUFFIX` | `"_functional_tests.json"` | Discovery file suffix |
+
+#### `<applug>_functional_tests.json` schema
+
+```json
+{
+  "schema_version": "1.0",
+  "functional_tests": [
+    {
+      "test_id": "<applug>:<test_name>",
+      "description": "Human-readable description of what is verified",
+      "module": "<applug>_functional_tests",
+      "function": "test_<name>",
+      "tags": ["network"]
+    }
+  ]
+}
+```
+
+Required fields: `test_id`, `description`, `module`, `function`. `tags` is optional.
+
+#### `<applug>_functional_tests.py` — Python implementation
+
+```python
+def test_<name>(base_url: str, session) -> None:
+    """Assertion raises AssertionError on failure."""
+    resp = session.get(f"{base_url}/some/route")
+    assert resp.status_code == 200
+```
+
+- `base_url`: the frozen product's base URL (e.g. `http://127.0.0.1:PORT`)
+- `session`: a `requests.Session` pre-authenticated as the QA admin user
+- Raise `AssertionError` (or let a failing `assert` propagate) on failure
+- Standard library + `requests` only; no product-runtime imports
+
+#### Discovery and invocation (gate side — ahimsa)
+
+1. Walk source clone for `*_functional_tests.json` (same discovery pattern as `*_screens.json`)
+2. Parse each JSON; enumerate `test_id` / `module` / `function` declarations
+3. Import `module` from the source clone using `importlib`
+4. Call `function(base_url=product_url, session=auth_session)`
+5. Any `AssertionError` → gate fails with non-zero exit
+
+The gate runs ONLY declared tests (those listed in the JSON manifest). Test
+functions present in the `.py` file but not declared in the JSON are NOT
+invoked — the JSON is the authoritative contract.
