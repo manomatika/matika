@@ -90,23 +90,25 @@ class TestSchemaConstantParity:
             f"  ahimsa:  {sorted(ahimsa_set)}"
         )
 
-    def test_functional_test_schema_parity_if_present(self, ahimsa_constants):
-        """Once manomatika/ahimsa#101 lands, FUNCTIONAL_TEST_SCHEMA must match matika canon."""
+    def test_functional_test_schema_parity(self, ahimsa_constants):
+        """FUNCTIONAL_TEST_SCHEMA must be mirrored by ahimsa and match matika canon."""
         from matika.core.functional_test_contract import FUNCTIONAL_TEST_SCHEMA
         ahimsa_val = ahimsa_constants.get("FUNCTIONAL_TEST_SCHEMA")
-        if ahimsa_val is None:
-            return  # not yet mirrored; parity enforced after ahimsa#101 merges
+        assert ahimsa_val is not None, (
+            "FUNCTIONAL_TEST_SCHEMA not found in ahimsa scripts/screen_manifest.py"
+        )
         assert ahimsa_val == FUNCTIONAL_TEST_SCHEMA, (
             f"FUNCTIONAL_TEST_SCHEMA drift: matika={FUNCTIONAL_TEST_SCHEMA!r}, "
             f"ahimsa={ahimsa_val!r}"
         )
 
-    def test_functional_tests_suffix_parity_if_present(self, ahimsa_constants):
-        """Once manomatika/ahimsa#101 lands, FUNCTIONAL_TESTS_SUFFIX must match matika canon."""
+    def test_functional_tests_suffix_parity(self, ahimsa_constants):
+        """FUNCTIONAL_TESTS_SUFFIX must be mirrored by ahimsa and match matika canon."""
         from matika.core.functional_test_contract import FUNCTIONAL_TESTS_SUFFIX
         ahimsa_val = ahimsa_constants.get("FUNCTIONAL_TESTS_SUFFIX")
-        if ahimsa_val is None:
-            return  # not yet mirrored; parity enforced after ahimsa#101 merges
+        assert ahimsa_val is not None, (
+            "FUNCTIONAL_TESTS_SUFFIX not found in ahimsa scripts/screen_manifest.py"
+        )
         assert ahimsa_val == FUNCTIONAL_TESTS_SUFFIX, (
             f"FUNCTIONAL_TESTS_SUFFIX drift: matika={FUNCTIONAL_TESTS_SUFFIX!r}, "
             f"ahimsa={ahimsa_val!r}"
