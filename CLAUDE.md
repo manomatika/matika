@@ -196,11 +196,11 @@ Posture authority of record is `manomatika/manomatika`'s `docs/ManoMatikaUseCase
 
 ### Three-layer testing model
 
-Three distinct layers; never collapse them.
+Three distinct layers; never collapse them. The model is LIVE end-to-end today; the three layers are composed into the product gate by ahimsa, which is BUILT (implemented, unit-covered, structurally checked) but not yet proven against a live frozen artifact.
 
-- **L1 — own-suite tests.** Every component unit/integration-tests its *own* functions in its *own* suite. matika included: auth/RBAC/CSRF/loaders (see `### Testing` above).
-- **L2 — generic structural harness.** A domain-blind, AppLug-agnostic harness: "every declared screen routes, renders, and shows its markers" (grounded in the screen-schema `markers` + `[ROUTES:...]` startup log marker — see [docs/screen-schema.md](docs/screen-schema.md)). **matika owns the contract; ahimsa's gate runs it.**
-- **L3 — AppLug-authored functional tests.** Functional tests *authored by the AppLug* but *generically invoked* by the product gate via a contract. Who authors (the AppLug) is separate from who invokes (the generic gate); there is no isolation requirement.
+- **L1 — component own suites.** Every component unit/integration-tests its *own* functions in its *own* suite. matika included: auth/RBAC/CSRF/loaders (see `### Testing` above).
+- **L2 — generic structural harness.** Domain-blind, manifest-driven. tier-a asserts every declared screen's route is alive, authorized, and renders HTML over authenticated HTTP; tier-b drives each declared screen's steps through a headless browser (Playwright) via a generic verb executor and asserts its markers in the live DOM. AppLug-agnostic. **matika owns the contract** (screen schema, `*_screens.json`, the `[ROUTES:...]` startup marker — see [docs/screen-schema.md](docs/screen-schema.md)); **the ahimsa gate runs it.**
+- **L3 — AppLug-authored functional tests, generically invoked** by the gate, **reboot-per-applug.** The gate discovers each AppLug's `*_functional_tests.json` from a SHA-pinned source clone, groups by AppLug, boots a fresh app per AppLug in a clean HOME, runs that AppLug's tests in randomized (seeded) order, and tears down. Each test self-arranges (declared `setup`) and self-resets (declared `teardown`, guaranteed-run via try/finally). The randomized order is the verifier that reset discipline holds; the reboot is coarse containment BETWEEN AppLugs only — there is NO within-AppLug reboot. The base seed is logged as `L3 random seed: <seed>` and replayable via `--l3-seed`. The functional-test schema is version `1.0` with OPTIONAL `setup`/`teardown` fields. A test that cannot reset its mutation is a DEFECT, never rebooted-around. Who authors (the AppLug) is separate from who invokes (the generic gate); there is no isolation requirement.
 
 ### Standing Rules
 
