@@ -185,6 +185,23 @@ For Frozen App (boot/plugin-lifecycle) detail, see [docs/frozen-app.md](docs/fro
 
 For Release Pipeline, see [docs/release-pipeline.md](docs/release-pipeline.md). For npm Package Publishing, see [docs/npm-publishing.md](docs/npm-publishing.md).
 
+### AppLug trust & test posture
+
+Posture authority of record is `manomatika/manomatika`'s `docs/ManoMatikaUseCases.md`; the summary below is matika's slice.
+
+- **Install-trust ("posture (a)").** We trust everything at this stage. Installing an AppLug — via recipe at build time, or via future runtime AppLug loading — *is* the trust decision. There is no first-party/third-party distinction in mechanism: matika treats every AppLug identically. The intent is hindrances to bad behavior to the extent practical, with no claim a determined bad actor is stopped. ManoMatika-org AppLugs are trusted by provenance and will live in a non-public org AppLug repo; the SDK only ever bundles the reference AppLug (eyerate).
+- **Dangerous host ops go through matika APIs.** Network, filesystem, process, and secrets access is *expected* through a reduced, documented, auditable safe-by-default matika-API surface. This is **convention + review, not a hard guarantee** — an AppLug is in-process Python and cannot be prevented from reaching host primitives directly. Never describe it as a guarantee. This capability surface is matika-owned and a **forward v0.0.2 design item** (not built today).
+- **AppLug test execution is pure build automation, not a security boundary.** The framework discovers each AppLug's unit tests through a known interface and runs them *all* automatically at build time, identically for every AppLug — no trust dimension, no sandbox, no isolation. matika **owns this test-discovery interface**. (The earlier "securely execute untrusted AppLug tests" framing was a category error and must not reappear; WASM/Wasmtime/WASI sandboxing of AppLug code or tests is rejected — complexity, a security-critical runtime dependency, and inability to run the real product stack of compiled C/Rust extensions and sockets.)
+- **Forward (v0.0.2): advisory AppLug inspection.** A matika-owned canonical check (import-linter allowlist + AST check + Bandit) invoked by ahimsa at build/validate and by matika at runtime load — **advisory, not blocking**. Forward pointer only; not built today.
+
+### Three-layer testing model
+
+Three distinct layers; never collapse them.
+
+- **L1 — own-suite tests.** Every component unit/integration-tests its *own* functions in its *own* suite. matika included: auth/RBAC/CSRF/loaders (see `### Testing` above).
+- **L2 — generic structural harness.** A domain-blind, AppLug-agnostic harness: "every declared screen routes, renders, and shows its markers" (grounded in the screen-schema `markers` + `[ROUTES:...]` startup log marker — see [docs/screen-schema.md](docs/screen-schema.md)). **matika owns the contract; ahimsa's gate runs it.**
+- **L3 — AppLug-authored functional tests.** Functional tests *authored by the AppLug* but *generically invoked* by the product gate via a contract. Who authors (the AppLug) is separate from who invokes (the generic gate); there is no isolation requirement.
+
 ### Standing Rules
 
 General working discipline (tests, git, security checks, cross-repo refs, etc.) lives in the *Working Style & Discipline* section at the top of this file. The bullets below are matika-specific.
