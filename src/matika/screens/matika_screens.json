@@ -5,7 +5,7 @@
       "screen_id": "home",
       "type": "screen",
       "route": "/",
-      "markers": ["#app-selector", ".dashboard-container", "#main-content"],
+      "markers": [".hp-page", ".hp-welcome"],
       "steps": [
         {"verb": "navigate", "target": "/"}
       ]
@@ -14,7 +14,7 @@
       "screen_id": "about",
       "type": "screen",
       "route": "/about",
-      "markers": [".about-page", "#about-container"],
+      "markers": [".abt-page"],
       "steps": [
         {"verb": "navigate", "target": "/about"}
       ]
@@ -23,7 +23,7 @@
       "screen_id": "login",
       "type": "screen",
       "route": "/login",
-      "markers": ["#login-form", "form[action='/login']"],
+      "markers": ["form[action='/login']"],
       "steps": [
         {"verb": "navigate", "target": "/login"}
       ]
@@ -44,7 +44,7 @@
       "screen_id": "register",
       "type": "screen",
       "route": "/register",
-      "markers": ["form[action='/register']", "#register-form"],
+      "markers": ["form[action='/register']"],
       "steps": [
         {"verb": "navigate", "target": "/register"}
       ]
@@ -59,7 +59,7 @@
       "screen_id": "forgot_password",
       "type": "screen",
       "route": "/forgot-password",
-      "markers": ["form[action='/forgot-password']", "#forgot-password-form"],
+      "markers": ["form[action='/forgot-password']"],
       "steps": [
         {"verb": "navigate", "target": "/forgot-password"}
       ]
@@ -74,7 +74,7 @@
       "screen_id": "change_password",
       "type": "screen",
       "route": "/change-password",
-      "markers": ["form[action='/change-password']", "#change-password-form"],
+      "markers": ["form[action='/change-password']"],
       "steps": [
         {"verb": "navigate", "target": "/change-password"}
       ]
@@ -89,7 +89,7 @@
       "screen_id": "admin_roles",
       "type": "screen",
       "route": "/admin/roles",
-      "markers": [".roles-table", "#roles-container", "table.roles"],
+      "markers": ["#roles-table", "#btn-new"],
       "steps": [
         {"verb": "navigate", "target": "/admin/roles"}
       ]
@@ -116,7 +116,7 @@
       "screen_id": "admin_permissions",
       "type": "screen",
       "route": "/admin/permissions",
-      "markers": [".permissions-table", "#permissions-container"],
+      "markers": ["#permission-editor"],
       "steps": [
         {"verb": "navigate", "target": "/admin/permissions"}
       ]
@@ -137,7 +137,7 @@
       "screen_id": "admin_users",
       "type": "screen",
       "route": "/admin/users",
-      "markers": [".users-table", "#users-container", "table.users"],
+      "markers": ["#user-table"],
       "steps": [
         {"verb": "navigate", "target": "/admin/users"}
       ]
@@ -170,7 +170,7 @@
       "screen_id": "admin_data_export",
       "type": "screen",
       "route": "/admin/settings/export",
-      "markers": ["form[action='/admin/settings/export']", "#export-form"],
+      "markers": ["form[action='/admin/settings/export']", ".settings-container"],
       "steps": [
         {"verb": "navigate", "target": "/admin/settings/export"}
       ]
@@ -185,7 +185,7 @@
       "screen_id": "admin_data_import",
       "type": "screen",
       "route": "/admin/settings/import",
-      "markers": ["form[action='/admin/settings/import']", "#import-form"],
+      "markers": ["form[action='/admin/settings/import']", ".settings-container"],
       "steps": [
         {"verb": "navigate", "target": "/admin/settings/import"}
       ]
@@ -200,7 +200,7 @@
       "screen_id": "user_settings",
       "type": "screen",
       "route": "/settings/user",
-      "markers": ["#user-settings-form", ".user-settings-container"],
+      "markers": [".us-page"],
       "steps": [
         {"verb": "navigate", "target": "/settings/user"}
       ]
@@ -209,7 +209,7 @@
       "screen_id": "user_change_username",
       "type": "screen",
       "route": "/settings/user/change-username",
-      "markers": ["form[action='/settings/user/change-username']", "#change-username-form"],
+      "markers": ["form[action='/settings/user/change-username']"],
       "steps": [
         {"verb": "navigate", "target": "/settings/user/change-username"}
       ]
@@ -224,7 +224,7 @@
       "screen_id": "user_change_password",
       "type": "screen",
       "route": "/settings/user/change-password",
-      "markers": ["form[action='/settings/user/change-password']", "#user-change-password-form"],
+      "markers": ["form[action='/settings/user/change-password']"],
       "steps": [
         {"verb": "navigate", "target": "/settings/user/change-password"}
       ]
@@ -257,7 +257,7 @@
       "screen_id": "settings_export",
       "type": "screen",
       "route": "/settings/export",
-      "markers": ["form[action='/settings/export']", "#user-export-form"],
+      "markers": ["form[action='/settings/export']", ".settings-container"],
       "steps": [
         {"verb": "navigate", "target": "/settings/export"}
       ]
@@ -272,7 +272,7 @@
       "screen_id": "settings_import",
       "type": "screen",
       "route": "/settings/import",
-      "markers": ["form[action='/settings/import']", "#user-import-form"],
+      "markers": ["form[action='/settings/import']", ".settings-container"],
       "steps": [
         {"verb": "navigate", "target": "/settings/import"}
       ]
@@ -287,7 +287,7 @@
       "screen_id": "system_settings",
       "type": "screen",
       "route": "/settings/system",
-      "markers": ["form[action='/settings/system']", "#system-settings-form"],
+      "markers": ["form[action='/settings/system']", ".settings-container"],
       "steps": [
         {"verb": "navigate", "target": "/settings/system"}
       ]
