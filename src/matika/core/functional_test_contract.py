@@ -14,7 +14,10 @@ The per-component declarative convention for functional tests:
   - No test code ships in the product runtime (source-tree-only files).
 
 ahimsa mirrors FUNCTIONAL_TEST_SCHEMA and FUNCTIONAL_TESTS_SUFFIX in
-scripts/screen_manifest.py. Parity is checked by the M4 test (matika#87).
+scripts/screen_manifest.py. Cross-repo parity against these canonical values is
+asserted in ahimsa's gate (tests/test_screen_schema_parity.py) — the layer that
+checks out both repos — per manomatika/matika#105; it is no longer a matika unit
+test (that made matika CI red without the ahimsa sibling).
 """
 
 FUNCTIONAL_TEST_SCHEMA = "1.0"
