@@ -198,7 +198,7 @@ Posture authority of record is `manomatika/manomatika`'s `docs/ManoMatikaUseCase
 
 ### Three-layer testing model
 
-Three distinct layers; never collapse them. The model is LIVE end-to-end today; the three layers are composed into the product gate by ahimsa, which is BUILT (implemented, unit-covered, structurally checked) but not yet proven against a live frozen artifact.
+Three distinct layers; never collapse them. The model is LIVE end-to-end today; the three layers are composed into the product gate by ahimsa, which is BUILT and PROVEN green end-to-end against a live frozen artifact across all three platforms (macos-14 arm64, macos-15-intel, windows-latest), both install arms, fresh + upgrade.
 
 - **L1 — component own suites.** Every component unit/integration-tests its *own* functions in its *own* suite. matika included: auth/RBAC/CSRF/loaders (see `### Testing` above).
 - **L2 — generic structural harness.** Domain-blind, manifest-driven. tier-a asserts every declared screen's route is alive, authorized, and renders HTML over authenticated HTTP; tier-b drives each declared screen's steps through a headless browser (Playwright) via a generic verb executor and asserts its markers in the live DOM. AppLug-agnostic. **matika owns the contract** (screen schema, `*_screens.json`, the `[ROUTES:...]` startup marker — see [docs/screen-schema.md](docs/screen-schema.md)); **the ahimsa gate runs it.**
