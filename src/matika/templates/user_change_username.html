@@ -15,7 +15,7 @@
         {% endif %}
 
         <form action="/settings/user/change-username" method="post">
-            <label>{{ t.label_new_username or 'New Username:' }}</label>
+            <label>{{ t.label_new_username }}</label>
             <input type="text" name="new_username" required>
             <br><br>
             <button type="submit">{{ t.btn_update_username }}</button>

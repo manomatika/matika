@@ -151,5 +151,16 @@
     "heading_lookup_results": "Search Results",
     "heading_unauthorized": "Access Denied",
     "msg_unauthorized_body": "You do not have permission to access this page.",
-    "msg_contact_admin": "Please contact a system administrator if you believe this is an error."
+    "msg_contact_admin": "Please contact a system administrator if you believe this is an error.",
+    "th_name": "Name",
+    "label_export_filename": "Export Filename:",
+    "label_data_categories": "Data Categories:",
+    "label_import_categories": "Data Categories to Import:",
+    "msg_click_to_select": "Click to select",
+    "msg_confirm_delete": "Clear all permissions for this subject?",
+    "label_target_page": "Target Page",
+    "btn_new": "New",
+    "item_bulk_add": "Bulk Add",
+    "item_bulk_delete": "Bulk Delete",
+    "btn_clear": "Clear"
 }
