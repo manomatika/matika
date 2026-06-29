@@ -46,7 +46,7 @@
         <div class="page-row" data-page-path="{{ path }}" data-page-label="{{ data.label }}">
             <div class="page-row-header">
                 <span>{{ data.label }} <small style="color: #666; font-weight: normal; margin-left: 10px;">({{ path }})</small></span>
-                <span style="font-size: 0.8em; color: #999;">{{ t.msg_click_to_select or 'Click to select' }}</span>
+                <span style="font-size: 0.8em; color: #999;">{{ t.msg_click_to_select }}</span>
             </div>
             
             {% if data.subjects %}
@@ -77,7 +77,7 @@
                             <form action="/admin/permissions/delete-subject" method="post" style="display:inline;">
                                 <input type="hidden" name="page_path" value="{{ path }}">
                                 <input type="hidden" name="subject" value="{{ s_key }}">
-                                <button type="submit" class="remove-btn" onclick="return confirm('{{ t.msg_confirm_delete or 'Clear all permissions for this subject?' }}')">{{ t.btn_remove or 'Clear' }}</button>
+                                <button type="submit" class="remove-btn" onclick="return confirm('{{ t.msg_confirm_delete }}')">{{ t.btn_clear }}</button>
                             </form>
                         </td>
                     </tr>
@@ -97,7 +97,7 @@
     <!-- Sticky Action Bar for the selected page -->
     <div class="action-container" id="permission-editor" style="display: none;">
         <div class="action-header">
-            {{ t.label_target_page or 'Target Page' }}: <span id="selected-page-display"></span>
+            {{ t.label_target_page }}: <span id="selected-page-display"></span>
         </div>
         <form action="/admin/permissions/create" method="post" class="form-inline">
             <input type="hidden" name="page_path" id="form-page-path">

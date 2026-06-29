@@ -5,12 +5,12 @@
 
         <form action="{{ action_url }}" method="post">
             <div class="form-group">
-                <label for="filename">{{ t.label_export_filename or 'Export Filename:' }}</label>
+                <label for="filename">{{ t.label_export_filename }}</label>
                 <input type="text" id="filename" name="filename" value="{{ default_filename }}" required>
             </div>
 
             <div style="margin-bottom: 20px;">
-                <p style="font-weight: bold; margin-bottom: 10px;">{{ t.label_data_categories or 'Data Categories:' }}</p>
+                <p style="font-weight: bold; margin-bottom: 10px;">{{ t.label_data_categories }}</p>
                 
                 {% for cat in categories %}
                 <div style="margin-bottom: 10px;">
@@ -53,7 +53,7 @@
             </div>
 
             <div style="margin-bottom: 20px;">
-                <p style="font-weight: bold; margin-bottom: 10px;">{{ t.label_import_categories or 'Data Categories to Import:' }}</p>
+                <p style="font-weight: bold; margin-bottom: 10px;">{{ t.label_import_categories }}</p>
                 
                 {% for cat in categories %}
                 <div style="margin-bottom: 10px;">

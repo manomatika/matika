@@ -15,13 +15,13 @@
             {% block action_buttons %}
                 {% if metadata and metadata.maintenance_panel %}
                     {% if 'new' in metadata.maintenance_panel.buttons %}
-                    <button id="btn-new" class="btn-action btn-new">{{ t.btn_new or 'New' }}</button>
+                    <button id="btn-new" class="btn-action btn-new">{{ t.btn_new }}</button>
                     {% endif %}
                     {% if 'edit' in metadata.maintenance_panel.buttons %}
-                    <button id="btn-edit" class="btn-action btn-edit" disabled>{{ t.btn_edit or 'Edit' }}</button>
+                    <button id="btn-edit" class="btn-action btn-edit" disabled>{{ t.btn_edit }}</button>
                     {% endif %}
                     {% if 'delete' in metadata.maintenance_panel.buttons %}
-                    <button id="btn-delete" class="btn-action btn-delete" disabled>{{ t.btn_delete or 'Delete' }}</button>
+                    <button id="btn-delete" class="btn-action btn-delete" disabled>{{ t.btn_delete }}</button>
                     {% endif %}
                 {% else %}
                     <button id="btn-new" class="btn-action btn-new">New</button>
@@ -37,8 +37,8 @@
                     <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-9"/></svg>
                 </button>
                 <div class="dropdown-content">
-                    <div id="btn-bulk-add">{{ t.item_bulk_add or 'Bulk Add' }}</div>
-                    <div id="btn-bulk-delete">{{ t.item_bulk_delete or 'Bulk Delete' }}</div>
+                    <div id="btn-bulk-add">{{ t.item_bulk_add }}</div>
+                    <div id="btn-bulk-delete">{{ t.item_bulk_delete }}</div>
                 </div>
             </div>
         </div>
@@ -61,7 +61,7 @@
                     {% endblock %}
                 </select>
                 <input type="text" id="search-input" class="edit-input" placeholder="Search..." style="flex: 1;">
-                <button id="btn-search" class="btn-action">{{ t.btn_search or 'Search' }}</button>
+                <button id="btn-search" class="btn-action">{{ t.btn_search }}</button>
             </div>
 
             <!-- Browse Table (BT) -->
@@ -133,8 +133,8 @@
             <!-- Save Panel (SP) -->
             <div class="save-panel">
                 {% block save_buttons %}
-                <button id="btn-save" class="btn-action btn-save" disabled>{{ t.btn_save or 'Save' }}</button>
-                <button id="btn-cancel" class="btn-action btn-cancel" disabled>{{ t.btn_cancel or 'Cancel' }}</button>
+                <button id="btn-save" class="btn-action btn-save" disabled>{{ t.btn_save }}</button>
+                <button id="btn-cancel" class="btn-action btn-cancel" disabled>{{ t.btn_cancel }}</button>
                 {% endblock %}
             </div>
         </div>
