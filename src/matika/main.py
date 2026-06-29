@@ -12,7 +12,7 @@ from starlette.routing import Mount
 from sqlalchemy.orm import Session
 
 # Local Imports
-from .core.paths import BASE_DIR
+from .core.paths import BASE_DIR, get_matika_version
 from .database import SessionLocal, init_db, get_db, get_system_setting
 from .core.constants import PageType
 from .i18n import I18nService
@@ -155,6 +155,11 @@ def create_app() -> FastAPI:
         return request.app.state.templates.TemplateResponse(
             request, "unauthorized.html", {"t": t, "user": getattr(request.state, "user", None)}, status_code=403
         )
+
+    # Health probe — unauthenticated, no DB calls, used by launcher readiness gate
+    @app.get("/healthz", include_in_schema=False, tags=[PageType.INFO])
+    async def healthz():
+        return {"product": "ManoMatika", "version": get_matika_version(), "status": "ok"}
 
     # --- 3. ROUTERS ---
     app.include_router(public.router)

@@ -45,12 +45,17 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import multiprocessing
 import os
 import secrets
 import shutil
+import signal
 import socket
 import sys
 import threading
+import time
+import urllib.error
+import urllib.request
 import webbrowser
 from datetime import date
 from pathlib import Path
@@ -559,15 +564,49 @@ def first_run_init(data_dir: Path) -> None:
 # Port-conflict detection
 # ---------------------------------------------------------------------------
 
-def _port_in_use(port: int) -> bool:
-    """Return True if *port* is already bound on localhost."""
+def _port_available(port: int) -> bool:
+    """Return True if port can be bound on localhost (False = port already in use)."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.settimeout(0.5)
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
-            s.connect(("127.0.0.1", port))
+            s.bind(("127.0.0.1", port))
             return True
-        except (ConnectionRefusedError, OSError):
+        except OSError:
             return False
+
+
+def _probe_healthz(port: int, timeout: float = 2.0) -> dict | None:
+    """Probe /healthz at 127.0.0.1:port. Returns parsed JSON dict or None on failure."""
+    import json as _json
+    url = f"http://127.0.0.1:{port}/healthz"
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as resp:
+            return _json.loads(resp.read().decode())
+    except Exception as exc:
+        logger.warning("healthz probe failed: %s (port %d)", exc, port)
+        return None
+
+
+def _wait_for_ready(
+    port: int,
+    interval: float = 0.5,
+    per_attempt_timeout: float = 1.0,
+    startup_timeout: float = 30.0,
+) -> bool:
+    """Poll /healthz until ok or startup_timeout exhausted. Returns True on success."""
+    deadline = time.monotonic() + startup_timeout
+    attempts = 0
+    while time.monotonic() < deadline:
+        attempts += 1
+        data = _probe_healthz(port, timeout=per_attempt_timeout)
+        if data and data.get("status") == "ok":
+            return True
+        time.sleep(interval)
+    logger.error(
+        "server not ready after %ss (%d attempts); browser not opened",
+        startup_timeout, attempts,
+    )
+    return False
 
 
 def _show_port_error(port: int) -> None:
@@ -659,29 +698,63 @@ def main() -> None:
         )
 
     # --- Port conflict check --------------------------------------------------
-    if _port_in_use(port):
-        _show_port_error(port)
-        sys.exit(1)
+    if not _port_available(port):
+        # Port is in use — probe /healthz to distinguish our instance vs foreign
+        healthz_data = _probe_healthz(port)
+        if healthz_data and healthz_data.get("product") == "ManoMatika":
+            logger.info(
+                "port %d already held by a ManoMatika instance (healthz: %r); "
+                "focusing existing window",
+                port, healthz_data,
+            )
+            webbrowser.open(f"http://127.0.0.1:{port}")
+            sys.exit(0)
+        else:
+            reason = repr(healthz_data) if healthz_data else "healthz unreachable"
+            logger.error(
+                "port %d held by a non-ManoMatika process (healthz %s); refusing to start",
+                port, reason,
+            )
+            _show_port_error(port)
+            sys.exit(1)
 
     # --- Launch ---------------------------------------------------------------
     logger.info("Starting uvicorn on http://127.0.0.1:%s", port)
 
-    def _open_browser() -> None:
-        webbrowser.open(f"http://127.0.0.1:{port}")
+    def _browser_open_when_ready() -> None:
+        if _wait_for_ready(port):
+            logger.info("server ready on port %d; opening browser", port)
+            webbrowser.open(f"http://127.0.0.1:{port}")
 
-    threading.Timer(1.5, _open_browser).start()
+    threading.Thread(target=_browser_open_when_ready, daemon=True, name="browser-open").start()
 
     import uvicorn
 
-    uvicorn.run(
+    _uvicorn_config = uvicorn.Config(
         "matika.main:app",
         host="127.0.0.1",
         port=port,
         log_level="info",
+        timeout_graceful_shutdown=5,
     )
+    _server = uvicorn.Server(_uvicorn_config)
+
+    def _handle_shutdown(signum: int, frame: object) -> None:
+        logger.info("signal %d received → draining (timeout %ss)", signum, 5)
+        _server.should_exit = True
+
+    signal.signal(signal.SIGTERM, _handle_shutdown)
+    if signal.getsignal(signal.SIGINT) is signal.default_int_handler:
+        signal.signal(signal.SIGINT, _handle_shutdown)
+
+    try:
+        _server.run()
+    finally:
+        logger.info("server stopped, port %d released", port)
 
 
 if __name__ == "__main__":
+    multiprocessing.freeze_support()
     # Logging up FIRST — before any risky/heavy import in main() (alembic, the
     # matika app, plugins, uvicorn). A failure anywhere after this point lands
     # in ~/matika/logs/matika-<date>.log, satisfying the mandate that NO
