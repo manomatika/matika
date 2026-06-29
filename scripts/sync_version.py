@@ -245,6 +245,36 @@ def sync(check_only: bool = False, quiet: bool = False) -> list:
     return affected
 
 
+def verify_release_tag(tag: str) -> None:
+    """Check that VERSION matches the given release tag before cutting.
+
+    Strips a leading 'v' from *tag* (e.g. 'v0.0.4-rc.10' → '0.0.4-rc.10'),
+    then compares against the raw VERSION string. Returns normally (exit 0
+    from the caller) on a match; prints a loud, path-bearing error to stderr
+    and exits 1 on any mismatch.
+
+    Invariant enforced: VERSION must equal the tag being cut. Cutting a tag
+    without VERSION matching it causes the frozen binary to report the wrong
+    version.
+    """
+    if tag.startswith("v"):
+        tag = tag[1:]
+
+    raw, _clean = read_version()
+
+    if raw == tag:
+        print(f"INFO: version reconciled: {raw!r}")
+        return
+
+    version_file = REPO_ROOT / "VERSION"
+    print(
+        f'ERROR "VERSION {raw!r} != release tag {tag!r} — refusing release"\n'
+        f"(VERSION file: {version_file})",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+
 def drift_check(expected: str) -> None:
     """
     Verify every sync target holds exactly expected. Exit 1 on any mismatch.
@@ -304,7 +334,17 @@ if __name__ == "__main__":
         action="store_true",
         help="Emit JSON output (requires --check). Exit 0 if clean, 1 if drift.",
     )
+    parser.add_argument(
+        "--verify-tag",
+        metavar="TAG",
+        help="Verify VERSION matches the given release tag (e.g. v0.0.4-rc.10). "
+             "Exit 0 on match, 1 on mismatch. Use before cutting a tag.",
+    )
     args = parser.parse_args()
+
+    if args.verify_tag:
+        verify_release_tag(args.verify_tag)
+        sys.exit(0)
 
     if args.json and not args.check:
         print("ERROR: --json requires --check", file=sys.stderr)
