@@ -324,3 +324,55 @@ def test_drift_line_uses_double_quotes(tmp_path, capsys):
     out = capsys.readouterr().out
     assert 'expected "0.0.4", found "0.0.1"' in out
     assert "expected '0.0.4'" not in out
+
+
+# -----------------------------------------------------------------------
+# verify_release_tag
+# -----------------------------------------------------------------------
+
+def test_verify_release_tag_passes_matching_tag(tmp_path, monkeypatch):
+    """verify_release_tag exits cleanly when VERSION matches the tag."""
+    (tmp_path / "VERSION").write_text("0.0.4-rc.10")
+    monkeypatch.setattr(sync_version, "REPO_ROOT", tmp_path)
+    # Should not raise / exit 1
+    sync_version.verify_release_tag("v0.0.4-rc.10")  # with v prefix
+    sync_version.verify_release_tag("0.0.4-rc.10")   # without v prefix
+
+
+def test_verify_release_tag_fails_mismatched_tag(tmp_path, monkeypatch, capsys):
+    """verify_release_tag exits 1 when VERSION != tag."""
+    (tmp_path / "VERSION").write_text("0.0.4-rc.7")
+    monkeypatch.setattr(sync_version, "REPO_ROOT", tmp_path)
+    with pytest.raises(SystemExit) as exc_info:
+        sync_version.verify_release_tag("v0.0.4-rc.10")
+    assert exc_info.value.code == 1
+    captured = capsys.readouterr()
+    assert "VERSION" in captured.err
+    assert "rc.10" in captured.err
+    assert "rc.7" in captured.err
+
+
+def test_verify_release_tag_includes_file_path_in_error(tmp_path, monkeypatch, capsys):
+    """Error message must include the VERSION file path for debuggability."""
+    (tmp_path / "VERSION").write_text("0.0.4-rc.7")
+    monkeypatch.setattr(sync_version, "REPO_ROOT", tmp_path)
+    with pytest.raises(SystemExit):
+        sync_version.verify_release_tag("v0.0.4-rc.10")
+    captured = capsys.readouterr()
+    assert str(tmp_path) in captured.err or "VERSION" in captured.err
+
+
+def test_verify_release_tag_passes_bare_core_final(tmp_path, monkeypatch):
+    """verify_release_tag passes when VERSION is the bare-core final matching the tag."""
+    (tmp_path / "VERSION").write_text("0.0.4")
+    monkeypatch.setattr(sync_version, "REPO_ROOT", tmp_path)
+    sync_version.verify_release_tag("v0.0.4")  # should pass
+
+
+def test_verify_release_tag_fails_core_mismatch(tmp_path, monkeypatch):
+    """verify_release_tag fails when even the core doesn't match."""
+    (tmp_path / "VERSION").write_text("0.0.5-rc.1")
+    monkeypatch.setattr(sync_version, "REPO_ROOT", tmp_path)
+    with pytest.raises(SystemExit) as exc_info:
+        sync_version.verify_release_tag("v0.0.4-rc.1")
+    assert exc_info.value.code == 1
