@@ -491,26 +491,275 @@ class TestFirstRunInit:
 
 
 # ---------------------------------------------------------------------------
-# _port_in_use
+# _port_available / _probe_healthz / _wait_for_ready
 # ---------------------------------------------------------------------------
 
-class TestPortInUse:
-    def test_returns_false_when_port_is_free(self):
-        # Use a port that is very unlikely to be bound during testing.
-        assert launcher._port_in_use(19999) is False
-
-    def test_returns_true_when_port_is_bound(self):
+class TestPortBindDetection:
+    def test_available_when_port_is_free(self):
+        """_port_available returns True for a port no one holds."""
         import socket as _socket
+        # Bind-and-release to grab an OS-assigned free port.
+        with _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM) as s:
+            s.bind(("127.0.0.1", 0))
+            free_port = s.getsockname()[1]
+        # Port is now released — should be available.
+        assert launcher._port_available(free_port) is True
 
+    def test_unavailable_when_port_is_bound(self):
+        """_port_available returns False when another socket holds the port."""
+        import socket as _socket
         srv = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
         srv.setsockopt(_socket.SOL_SOCKET, _socket.SO_REUSEADDR, 1)
         srv.bind(("127.0.0.1", 0))
         srv.listen(1)
         port = srv.getsockname()[1]
         try:
-            assert launcher._port_in_use(port) is True
+            assert launcher._port_available(port) is False
         finally:
             srv.close()
+
+
+class TestHealthzProbe:
+    """Unit tests for _probe_healthz(port)."""
+
+    def _make_response(self, body: bytes):
+        """Return a mock context-manager response with .read() → body."""
+        resp = mock.MagicMock()
+        resp.read.return_value = body
+        resp.__enter__ = mock.MagicMock(return_value=resp)
+        resp.__exit__ = mock.MagicMock(return_value=False)
+        return resp
+
+    def test_returns_dict_on_success(self):
+        payload = b'{"product": "ManoMatika", "status": "ok", "version": "0.0.4"}'
+        resp = self._make_response(payload)
+        with mock.patch("urllib.request.urlopen", return_value=resp):
+            result = launcher._probe_healthz(8000)
+        assert result == {"product": "ManoMatika", "status": "ok", "version": "0.0.4"}
+
+    def test_returns_none_on_connection_refused(self):
+        with mock.patch("urllib.request.urlopen", side_effect=ConnectionRefusedError()):
+            result = launcher._probe_healthz(8000)
+        assert result is None
+
+    def test_returns_none_on_timeout(self):
+        import socket as _socket
+        with mock.patch("urllib.request.urlopen", side_effect=_socket.timeout()):
+            result = launcher._probe_healthz(8000)
+        assert result is None
+
+    def test_returns_none_on_malformed_body(self):
+        resp = self._make_response(b"not-json-{{")
+        with mock.patch("urllib.request.urlopen", return_value=resp):
+            result = launcher._probe_healthz(8000)
+        assert result is None
+
+
+class TestHealthzReadinessPoll:
+    """Unit tests for _wait_for_ready(port)."""
+
+    def test_ready_on_first_attempt(self):
+        with mock.patch.object(
+            launcher, "_probe_healthz", return_value={"status": "ok"}
+        ), mock.patch.object(launcher, "time") as mock_time:
+            mock_time.monotonic.side_effect = [0.0, 0.0]  # start, first check
+            result = launcher._wait_for_ready(8000, startup_timeout=5.0)
+        assert result is True
+
+    def test_ready_on_nth_attempt(self):
+        """First N-1 probes return None; Nth returns ok → True."""
+        responses = [None, None, None, {"status": "ok"}]
+        call_count = 0
+
+        def fake_probe(port, timeout=2.0):
+            nonlocal call_count
+            r = responses[call_count]
+            call_count += 1
+            return r
+
+        # Provide monotonic times that stay within the 10s deadline.
+        times = [float(i) for i in range(10)]
+        with mock.patch.object(launcher, "_probe_healthz", side_effect=fake_probe), \
+             mock.patch("time.monotonic", side_effect=times), \
+             mock.patch("time.sleep"):
+            result = launcher._wait_for_ready(8000, interval=0.1, startup_timeout=10.0)
+
+        assert result is True
+        assert call_count == 4
+
+    def test_startup_timeout_exhausted(self, caplog):
+        """If the probe never returns ok, _wait_for_ready returns False and logs ERROR."""
+        import logging as _logging
+
+        # Monotonic times: deadline is 0+2=2; probes return None until time > 2.
+        times = [0.0, 0.5, 1.0, 1.5, 2.5]  # last value exceeds deadline
+        with mock.patch.object(launcher, "_probe_healthz", return_value=None), \
+             mock.patch("time.monotonic", side_effect=times), \
+             mock.patch("time.sleep"), \
+             caplog.at_level(_logging.ERROR, logger="launcher"):
+            result = launcher._wait_for_ready(8000, interval=0.1, startup_timeout=2.0)
+
+        assert result is False
+        assert any("not ready" in r.message for r in caplog.records)
+
+    def test_per_attempt_timeout_honored(self):
+        """_probe_healthz is called with per_attempt_timeout as the timeout arg."""
+        probe_kwargs: list = []
+
+        def fake_probe(port, timeout=2.0):
+            probe_kwargs.append(timeout)
+            return None  # always fail so we exhaust quickly
+
+        times = [0.0, 0.5, 1.5]  # two probes then deadline exceeded
+        with mock.patch.object(launcher, "_probe_healthz", side_effect=fake_probe), \
+             mock.patch("time.monotonic", side_effect=times), \
+             mock.patch("time.sleep"):
+            launcher._wait_for_ready(
+                8000, interval=0.1, per_attempt_timeout=0.3, startup_timeout=1.0
+            )
+
+        assert all(t == 0.3 for t in probe_kwargs), (
+            f"_probe_healthz was called with wrong timeout(s): {probe_kwargs}"
+        )
+
+
+class TestPortRecovery:
+    """Tests for the health-gated port-conflict logic inside main()."""
+
+    def _run_main_with_port_taken(self, probe_return, tmp_path):
+        """Run main() with _port_available=False and _probe_healthz returning probe_return."""
+        # Ensure sentinel exists so first_run_init is skipped.
+        (tmp_path / ".initialized").touch()
+        with mock.patch.object(launcher, "_setup_logging"), \
+             mock.patch.object(launcher, "_data_dir", return_value=tmp_path), \
+             mock.patch.object(launcher, "_load_env"), \
+             mock.patch.object(launcher, "_extract_bundled_plugins"), \
+             mock.patch.object(launcher, "_bundle_path", return_value=str(tmp_path)), \
+             mock.patch.object(launcher, "_port_available", return_value=False), \
+             mock.patch.object(launcher, "_probe_healthz", return_value=probe_return), \
+             mock.patch.dict(os.environ, {}):
+            launcher.main()
+
+    def test_ours_opens_browser_and_exits_zero(self, tmp_path):
+        """Own ManoMatika instance → open browser to existing window, exit 0."""
+        healthz = {"product": "ManoMatika", "status": "ok", "version": "0.0.4"}
+        with mock.patch("webbrowser.open") as mock_open, \
+             pytest.raises(SystemExit) as exc_info:
+            self._run_main_with_port_taken(healthz, tmp_path)
+        assert exc_info.value.code == 0
+        mock_open.assert_called_once_with("http://127.0.0.1:8000")
+
+    def test_foreign_process_fails_loud_exits_one(self, tmp_path):
+        """Foreign process with own healthz body → show dialog, exit 1."""
+        foreign_healthz = {"product": "OtherApp", "status": "ok"}
+        with mock.patch.object(launcher, "_show_port_error"), \
+             pytest.raises(SystemExit) as exc_info:
+            self._run_main_with_port_taken(foreign_healthz, tmp_path)
+        assert exc_info.value.code == 1
+
+    def test_healthz_unreachable_treated_as_foreign(self, tmp_path):
+        """If /healthz is unreachable (None) → treated as foreign, exit 1."""
+        with mock.patch.object(launcher, "_show_port_error"), \
+             pytest.raises(SystemExit) as exc_info:
+            self._run_main_with_port_taken(None, tmp_path)
+        assert exc_info.value.code == 1
+
+    def test_wrong_product_body_treated_as_foreign(self, tmp_path):
+        """Body has status:ok but no 'product' field → treated as foreign, exit 1."""
+        partial = {"status": "ok"}
+        with mock.patch.object(launcher, "_show_port_error"), \
+             pytest.raises(SystemExit) as exc_info:
+            self._run_main_with_port_taken(partial, tmp_path)
+        assert exc_info.value.code == 1
+
+    def test_malformed_body_treated_as_foreign(self, tmp_path):
+        """Empty dict (no product/status fields) → treated as foreign, exit 1."""
+        with mock.patch.object(launcher, "_show_port_error"), \
+             pytest.raises(SystemExit) as exc_info:
+            self._run_main_with_port_taken({}, tmp_path)
+        assert exc_info.value.code == 1
+
+
+class TestShutdownHandler:
+    """Verify SIGTERM/SIGINT handler sets server.should_exit (D3 graceful shutdown)."""
+
+    def test_sigterm_sets_server_should_exit(self, tmp_path):
+        """The _handle_shutdown closure installed for SIGTERM sets _server.should_exit."""
+        import signal as _signal
+
+        captured_handlers: dict = {}
+
+        def _fake_signal_install(signum, handler):
+            captured_handlers[signum] = handler
+
+        mock_server = mock.MagicMock()
+        mock_server.should_exit = False
+
+        mock_uvicorn = mock.MagicMock()
+        mock_uvicorn.Config.return_value = mock.MagicMock()
+        mock_uvicorn.Server.return_value = mock_server
+
+        # Create sentinel and env so first_run_init is skipped and _load_env is happy.
+        (tmp_path / ".initialized").touch()
+
+        with mock.patch.object(launcher, "_setup_logging"), \
+             mock.patch.object(launcher, "_data_dir", return_value=tmp_path), \
+             mock.patch.object(launcher, "_load_env"), \
+             mock.patch.object(launcher, "_extract_bundled_plugins"), \
+             mock.patch.object(launcher, "_bundle_path", return_value=str(tmp_path)), \
+             mock.patch.object(launcher, "_port_available", return_value=True), \
+             mock.patch("signal.signal", side_effect=_fake_signal_install), \
+             mock.patch("signal.getsignal", return_value=_signal.default_int_handler), \
+             mock.patch.dict(sys.modules, {"uvicorn": mock_uvicorn}), \
+             mock.patch("threading.Thread"), \
+             mock.patch.dict(os.environ, {}):
+            launcher.main()
+
+        assert _signal.SIGTERM in captured_handlers, \
+            "SIGTERM signal handler was not registered"
+        # Call the installed handler directly and verify it sets should_exit.
+        captured_handlers[_signal.SIGTERM](_signal.SIGTERM, None)
+        assert mock_server.should_exit is True
+
+
+class TestFreezeSupport:
+    """multiprocessing.freeze_support() must be the first call in __main__."""
+
+    def test_freeze_support_called_before_main(self):
+        """Verify freeze_support() appears in the __main__ block before logging setup."""
+        text = _LAUNCHER_PATH.read_text()
+        main_block_start = text.find('if __name__ == "__main__":')
+        assert main_block_start != -1, "__main__ block not found"
+        main_block = text[main_block_start:]
+        freeze_pos = main_block.find("freeze_support()")
+        setup_logging_pos = main_block.find("_setup_logging")
+        assert freeze_pos != -1, "freeze_support() not found in __main__ block"
+        assert setup_logging_pos != -1, "_setup_logging not found in __main__ block"
+        assert freeze_pos < setup_logging_pos, (
+            "freeze_support() must appear before _setup_logging in __main__ "
+            f"(found at offset {freeze_pos} vs {setup_logging_pos})"
+        )
+
+
+class TestCrashPortFree:
+    """Port-bind approach: no stale lock file on crash (OS releases port on process exit)."""
+
+    def test_port_available_function_exists(self):
+        """_port_available must exist and be callable (bind-based, not connect-based)."""
+        assert callable(launcher._port_available)
+
+    def test_no_file_lock_used(self):
+        """Verify launcher does not use a file-based lock for port management."""
+        text = _LAUNCHER_PATH.read_text()
+        # File locks (fcntl.flock, lockfile, filelock) should not appear.
+        assert "fcntl" not in text, "launcher must not use fcntl file locks"
+        assert "lockfile" not in text, "launcher must not use lockfile"
+
+    def test_port_in_use_function_removed(self):
+        """Old TCP-connect _port_in_use function must not exist; superseded by bind-check."""
+        assert not hasattr(launcher, "_port_in_use"), (
+            "_port_in_use still exists; it should have been replaced by _port_available"
+        )
 
 
 # ---------------------------------------------------------------------------
