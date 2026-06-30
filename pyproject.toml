@@ -25,6 +25,7 @@ dependencies = [
     "httpx>=0.28.1",
     "pydantic>=2.13.3",
     "pillow>=12.2.0",
+    "psutil>=6.0.0",
     "psycopg2-binary>=2.9.12",
     "pymysql>=1.1.2",
     "pyyaml>=6.0.3",
