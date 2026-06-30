@@ -23,10 +23,18 @@ Responsibilities
      the FIRST action after ~/matika/ is created, so a Finder-launched crash
      always leaves a diagnosable log on disk.
 
-3. Port-conflict detection:
-   - Before starting uvicorn, probe port 8000.  If it is already in use,
-     show a clear, user-facing error dialog and exit rather than crashing
-     silently.
+3. Port-conflict detection and health-gated reclaim:
+   - Before starting uvicorn, probe the configured port (MATIKA_PORT env var,
+     default 8000 — see ``_configured_port``).  /healthz is the SOLE
+     authority for "a healthy server is up"; process-alive / port-bound
+     alone are never sufficient.
+   - Healthy ManoMatika instance already there → open a browser tab to it,
+     exit 0 (second-click path).
+   - Port held but /healthz does not answer healthy (dead/wedged/crashed) →
+     identify the holder via psutil; if POSITIVELY identified as a
+     ManoMatika process, force-kill it and start fresh (reclaim). If the
+     holder is foreign or cannot be identified, never guess — fail loud
+     with the port + holder PID and exit 1.
 
 4. App launch:
    - Load environment from ~/matika/.env
@@ -587,6 +595,28 @@ def _probe_healthz(port: int, timeout: float = 2.0) -> dict | None:
         return None
 
 
+def _probe_healthz_with_retry(
+    port: int, attempts: int = 3, interval: float = 0.3, timeout: float = 1.0
+) -> dict | None:
+    """Probe /healthz with a small BOUNDED retry.
+
+    A server that is still starting up (e.g. mid-restart after a reclaim) gets
+    a beat to answer before being declared dead — without this, a slow but
+    healthy startup could be mistaken for a dead-and-reclaimable state. Returns
+    the first healthy ManoMatika response seen, or the LAST response observed
+    (possibly None) once *attempts* are exhausted; the caller decides what to
+    do with a non-healthy result.
+    """
+    result = None
+    for attempt in range(attempts):
+        result = _probe_healthz(port, timeout=timeout)
+        if result and result.get("status") == "ok" and result.get("product") == "ManoMatika":
+            return result
+        if attempt < attempts - 1:
+            time.sleep(interval)
+    return result
+
+
 def _wait_for_ready(
     port: int,
     interval: float = 0.5,
@@ -609,10 +639,15 @@ def _wait_for_ready(
     return False
 
 
-def _show_port_error(port: int) -> None:
-    """Display a user-friendly error when the port is already in use."""
+def _show_port_error(port: int, holder_pid: int | None = None) -> None:
+    """Display a user-friendly error when the port is already in use.
+
+    *holder_pid*, when known, is included so the message is actionable (rule
+    18 — fail loud with the port AND the holder PID, never a bare "in use").
+    """
+    holder_clause = f" by process {holder_pid}" if holder_pid is not None else ""
     message = (
-        f"ManoMatika cannot start because port {port} is already in use.\n\n"
+        f"ManoMatika cannot start because port {port} is already in use{holder_clause}.\n\n"
         f"Another application is listening on port {port}.  Please either:\n"
         f"  • Close the application that is using port {port}, or\n"
         f"  • Restart your computer and try again."
@@ -631,12 +666,188 @@ def _show_port_error(port: int) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Configured port
+# ---------------------------------------------------------------------------
+
+def _configured_port() -> int:
+    """Return the configured server port. MATIKA_PORT env var, default 8000.
+
+    This is the SOLE source of the port everywhere in this module — never
+    hardcode it elsewhere. Read after ``_load_env`` has merged ~/matika/.env
+    into the process environment, so precedence is: a pre-set shell env var
+    (``_load_env`` uses ``os.environ.setdefault``, so it never overrides one)
+    > .env file > this default.
+    """
+    raw = os.environ.get("MATIKA_PORT", "8000")
+    try:
+        return int(raw)
+    except ValueError:
+        logger.warning("invalid MATIKA_PORT=%r — falling back to default port 8000", raw)
+        return 8000
+
+
+# ---------------------------------------------------------------------------
+# Port-holder identification and reclaim (psutil-based, cross-platform)
+#
+# OS-independence: this entire feature is identical logic on macOS / Windows /
+# Linux. Only _find_port_holder_pid / _force_kill_process touch a
+# platform-specific primitive, and both do so exclusively through psutil's
+# cross-platform API — no per-OS branching anywhere in this module.
+# ---------------------------------------------------------------------------
+
+def _find_port_holder_pid(port: int) -> int | None:
+    """Best-effort: return the PID of the process LISTENing on *port*.
+
+    Returns None both when no listener is found AND when a candidate's
+    connection table could not be inspected (permission denied, vanished
+    mid-scan) — both cases are reported identically as "holder unknown" so the
+    caller treats them as ambiguous (fail loud) rather than as "no holder".
+    """
+    import psutil
+
+    for proc in psutil.process_iter(["pid"]):
+        try:
+            conns = proc.net_connections(kind="inet")
+        except (psutil.AccessDenied, psutil.NoSuchProcess, psutil.ZombieProcess):
+            continue
+        for conn in conns:
+            if conn.status == psutil.CONN_LISTEN and conn.laddr and conn.laddr.port == port:
+                return proc.pid
+    return None
+
+
+def _is_manomatika_process(pid: int) -> bool | None:
+    """Identify whether *pid* is a ManoMatika process.
+
+    Primary signal: the candidate's own executable path matches the
+    currently-running frozen binary's executable path — the strongest
+    possible signal, since this launcher process IS the ManoMatika binary.
+    Falls back to a name-pattern match on the executable's basename, which
+    also covers non-frozen/dev contexts and reinstalls where the exact path
+    differs (e.g. an upgraded bundle at a new version-suffixed path).
+
+    Returns None (unknown/ambiguous) — never a guessed True/False — when the
+    candidate's executable can't be read (AccessDenied, already gone, or
+    empty). Callers MUST treat None as "do not kill".
+    """
+    import psutil
+
+    try:
+        proc = psutil.Process(pid)
+        exe = proc.exe()
+    except (psutil.AccessDenied, psutil.NoSuchProcess, OSError):
+        return None
+
+    if not exe:
+        return None
+
+    our_exe = sys.executable if getattr(sys, "frozen", False) else None
+    if our_exe:
+        try:
+            if os.path.realpath(exe) == os.path.realpath(our_exe):
+                return True
+        except OSError:
+            pass
+
+    return "manomatika" in os.path.basename(exe).lower()
+
+
+def _force_kill_process(pid: int) -> None:
+    """Force-kill *pid*. A process that is already gone is not an error."""
+    import psutil
+
+    try:
+        proc = psutil.Process(pid)
+        proc.kill()
+        proc.wait(timeout=5)
+    except psutil.NoSuchProcess:
+        pass
+    except psutil.TimeoutExpired:
+        logger.warning("pid %d did not exit within 5s of force-kill", pid)
+
+
+def _wait_for_port_free(port: int, timeout: float = 5.0, interval: float = 0.2) -> bool:
+    """Poll ``_port_available(port)`` until True or *timeout* elapses."""
+    deadline = time.monotonic() + timeout
+    while True:
+        if _port_available(port):
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(interval)
+
+
+def _handle_port_conflict(port: int) -> None:
+    """Resolve a held *port*: defer to a healthy instance, reclaim a dead one,
+    or fail loud. Called only when ``_port_available(port)`` is False.
+
+    - /healthz (with a short bounded retry) identifies as a healthy ManoMatika
+      instance → a live instance is already serving; open a tab and exit 0
+      (the existing second-click path).
+    - /healthz does not answer healthy AND the holder is POSITIVELY identified
+      as a ManoMatika process → dead/wedged instance; force-kill it, confirm
+      the port is free, and return so the caller proceeds with a fresh launch.
+    - Anything else (foreign holder, or a holder that cannot be identified) →
+      never guess; fail loud with the port and holder PID (when known) and
+      exit 1.
+
+    Returns normally ONLY in the reclaim-succeeded case; every other case
+    calls ``sys.exit()`` and never returns.
+    """
+    healthz_data = _probe_healthz_with_retry(port)
+    if healthz_data and healthz_data.get("product") == "ManoMatika":
+        logger.info(
+            "port %d already held by a healthy ManoMatika instance (healthz: %r); "
+            "focusing existing window",
+            port, healthz_data,
+        )
+        webbrowser.open(f"http://127.0.0.1:{port}")
+        sys.exit(0)
+
+    holder_pid = _find_port_holder_pid(port)
+    is_ours = _is_manomatika_process(holder_pid) if holder_pid is not None else None
+
+    if is_ours is True:
+        logger.warning(
+            "port %d held by a dead/unhealthy ManoMatika process (pid %d; healthz %s) "
+            "-> reclaiming: force-killing and restarting fresh",
+            port, holder_pid, healthz_data if healthz_data else "unreachable",
+        )
+        _force_kill_process(holder_pid)
+        if not _wait_for_port_free(port):
+            logger.error(
+                "port %d still held after force-killing pid %d; aborting rather than "
+                "guess at a second holder",
+                port, holder_pid,
+            )
+            _show_port_error(port, holder_pid=holder_pid)
+            sys.exit(1)
+        logger.info("port %d reclaimed from dead pid %d; proceeding with fresh launch",
+                    port, holder_pid)
+        return  # caller falls through to the normal fresh-launch path
+
+    if holder_pid is None:
+        logger.error(
+            "port %d held but no listening process could be identified (healthz %s); "
+            "refusing to guess — failing loud",
+            port, healthz_data if healthz_data else "unreachable",
+        )
+    else:
+        logger.error(
+            "port %d held by pid %d, which is NOT identified as a ManoMatika process "
+            "(healthz %s); refusing to kill a foreign process — failing loud",
+            port, holder_pid, healthz_data if healthz_data else "unreachable",
+        )
+    _show_port_error(port, holder_pid=holder_pid)
+    sys.exit(1)
+
+
+# ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
 
 def main() -> None:
     """Initialise and launch the Matika app."""
-    port = 8000
     data_dir = _data_dir()
 
     # Logging must be first so every subsequent step — including failures —
@@ -669,6 +880,10 @@ def main() -> None:
     # --- Load environment -----------------------------------------------------
     _load_env(env_path)
 
+    # Configured port — read AFTER _load_env so ~/matika/.env (and any
+    # pre-set shell env var) can override the default. See _configured_port.
+    port = _configured_port()
+
     # --- Plugin install / refresh (EVERY launch) -----------------------------
     # Runs unconditionally — NOT gated by the first-run sentinel — so an upgrade
     # over a prior install refreshes stale bundled plugin code while preserving
@@ -697,26 +912,12 @@ def main() -> None:
             else bundled_src
         )
 
-    # --- Port conflict check --------------------------------------------------
+    # --- Port conflict check / health-gated reclaim ----------------------------
+    # _handle_port_conflict only returns when it reclaimed a dead ManoMatika
+    # process and the port is now free; every other outcome (healthy instance
+    # found, foreign holder, ambiguous holder) calls sys.exit() itself.
     if not _port_available(port):
-        # Port is in use — probe /healthz to distinguish our instance vs foreign
-        healthz_data = _probe_healthz(port)
-        if healthz_data and healthz_data.get("product") == "ManoMatika":
-            logger.info(
-                "port %d already held by a ManoMatika instance (healthz: %r); "
-                "focusing existing window",
-                port, healthz_data,
-            )
-            webbrowser.open(f"http://127.0.0.1:{port}")
-            sys.exit(0)
-        else:
-            reason = repr(healthz_data) if healthz_data else "healthz unreachable"
-            logger.error(
-                "port %d held by a non-ManoMatika process (healthz %s); refusing to start",
-                port, reason,
-            )
-            _show_port_error(port)
-            sys.exit(1)
+        _handle_port_conflict(port)
 
     # --- Launch ---------------------------------------------------------------
     logger.info("Starting uvicorn on http://127.0.0.1:%s", port)

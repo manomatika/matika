@@ -623,22 +623,283 @@ class TestHealthzReadinessPoll:
         )
 
 
-class TestPortRecovery:
-    """Tests for the health-gated port-conflict logic inside main()."""
+class TestConfiguredPort:
+    """Unit tests for _configured_port() — MATIKA_PORT env var, default 8000."""
 
-    def _run_main_with_port_taken(self, probe_return, tmp_path):
-        """Run main() with _port_available=False and _probe_healthz returning probe_return."""
-        # Ensure sentinel exists so first_run_init is skipped.
+    def test_default_when_unset(self, monkeypatch):
+        monkeypatch.delenv("MATIKA_PORT", raising=False)
+        assert launcher._configured_port() == 8000
+
+    def test_reads_matika_port_env_var(self, monkeypatch):
+        monkeypatch.setenv("MATIKA_PORT", "9123")
+        assert launcher._configured_port() == 9123
+
+    def test_invalid_value_falls_back_to_default(self, monkeypatch, caplog):
+        import logging as _logging
+        monkeypatch.setenv("MATIKA_PORT", "not-a-port")
+        with caplog.at_level(_logging.WARNING, logger="launcher"):
+            assert launcher._configured_port() == 8000
+        assert any("invalid MATIKA_PORT" in r.message for r in caplog.records)
+
+
+class TestProbeHealthzWithRetry:
+    """Unit tests for _probe_healthz_with_retry — bounded retry for a still-
+    starting server (so a slow-but-healthy startup isn't mistaken for dead)."""
+
+    def test_healthy_on_first_attempt_no_retry(self):
+        healthy = {"product": "ManoMatika", "status": "ok"}
+        with mock.patch.object(launcher, "_probe_healthz", return_value=healthy) as probe, \
+             mock.patch("time.sleep") as sleep:
+            result = launcher._probe_healthz_with_retry(8000, attempts=3, interval=0.1)
+        assert result == healthy
+        assert probe.call_count == 1
+        sleep.assert_not_called()
+
+    def test_slow_startup_answers_within_bounded_retry(self):
+        """First two probes fail/empty, third succeeds within the attempt budget."""
+        healthy = {"product": "ManoMatika", "status": "ok"}
+        responses = [None, {"status": "ok"}, healthy]
+        with mock.patch.object(launcher, "_probe_healthz", side_effect=responses) as probe, \
+             mock.patch("time.sleep") as sleep:
+            result = launcher._probe_healthz_with_retry(8000, attempts=3, interval=0.1)
+        assert result == healthy
+        assert probe.call_count == 3
+        assert sleep.call_count == 2
+
+    def test_exhausts_attempts_and_returns_last_result(self):
+        """Never answers healthy within the bounded retries → returns last seen
+        (possibly None) WITHOUT retrying forever."""
+        with mock.patch.object(launcher, "_probe_healthz", return_value=None) as probe, \
+             mock.patch("time.sleep") as sleep:
+            result = launcher._probe_healthz_with_retry(8000, attempts=3, interval=0.1)
+        assert result is None
+        assert probe.call_count == 3
+        assert sleep.call_count == 2  # never sleeps after the final attempt
+
+
+class TestPortHolderIdentification:
+    """Unit tests for the psutil-based reclaim primitives, mocking psutil
+    directly (psutil is a real installed dependency, not stubbed out)."""
+
+    def _fake_conn(self, port, status="LISTEN"):
+        conn = mock.MagicMock()
+        conn.status = status
+        conn.laddr = mock.MagicMock(port=port)
+        return conn
+
+    def _fake_proc(self, pid, conns=None, exc=None):
+        proc = mock.MagicMock()
+        proc.pid = pid
+        if exc is not None:
+            proc.net_connections.side_effect = exc
+        else:
+            proc.net_connections.return_value = conns or []
+        return proc
+
+    # -- _find_port_holder_pid ------------------------------------------------
+
+    def test_find_port_holder_pid_returns_matching_listener(self):
+        import psutil
+        holder = self._fake_proc(4242, conns=[self._fake_conn(8000, psutil.CONN_LISTEN)])
+        other = self._fake_proc(1, conns=[self._fake_conn(9999, psutil.CONN_LISTEN)])
+        with mock.patch.object(psutil, "process_iter", return_value=[other, holder]):
+            assert launcher._find_port_holder_pid(8000) == 4242
+
+    def test_find_port_holder_pid_none_when_no_listener(self):
+        import psutil
+        other = self._fake_proc(1, conns=[self._fake_conn(9999, psutil.CONN_LISTEN)])
+        with mock.patch.object(psutil, "process_iter", return_value=[other]):
+            assert launcher._find_port_holder_pid(8000) is None
+
+    def test_find_port_holder_pid_skips_unreadable_processes(self):
+        """A process whose connection table can't be read (AccessDenied) must
+        be skipped, not crash the scan — and must not be mistaken for a match."""
+        import psutil
+        unreadable = self._fake_proc(2, exc=psutil.AccessDenied(2))
+        holder = self._fake_proc(4242, conns=[self._fake_conn(8000, psutil.CONN_LISTEN)])
+        with mock.patch.object(psutil, "process_iter", return_value=[unreadable, holder]):
+            assert launcher._find_port_holder_pid(8000) == 4242
+
+    def test_find_port_holder_pid_ignores_non_listen_connections(self):
+        import psutil
+        established = self._fake_proc(7, conns=[self._fake_conn(8000, psutil.CONN_ESTABLISHED)])
+        with mock.patch.object(psutil, "process_iter", return_value=[established]):
+            assert launcher._find_port_holder_pid(8000) is None
+
+    # -- _is_manomatika_process -------------------------------------------------
+
+    def test_is_manomatika_true_when_exe_matches_our_frozen_binary(self, monkeypatch):
+        import psutil
+        monkeypatch.setattr(sys, "frozen", True, raising=False)
+        monkeypatch.setattr(sys, "executable", "/Applications/ManoMatika.app/Contents/MacOS/ManoMatika")
+        proc = mock.MagicMock()
+        proc.exe.return_value = "/Applications/ManoMatika.app/Contents/MacOS/ManoMatika"
+        with mock.patch.object(psutil, "Process", return_value=proc):
+            assert launcher._is_manomatika_process(4242) is True
+
+    def test_is_manomatika_true_via_name_pattern_fallback(self, monkeypatch):
+        """Path doesn't match exactly (e.g. a different installed version), but
+        the executable basename still identifies it as ManoMatika."""
+        import psutil
+        monkeypatch.setattr(sys, "frozen", False, raising=False)
+        proc = mock.MagicMock()
+        proc.exe.return_value = "/Applications/ManoMatika-0.0.3.app/Contents/MacOS/ManoMatika"
+        with mock.patch.object(psutil, "Process", return_value=proc):
+            assert launcher._is_manomatika_process(4242) is True
+
+    def test_is_manomatika_false_for_foreign_process(self):
+        import psutil
+        proc = mock.MagicMock()
+        proc.exe.return_value = "/usr/sbin/some-other-daemon"
+        with mock.patch.object(psutil, "Process", return_value=proc):
+            assert launcher._is_manomatika_process(999) is False
+
+    def test_is_manomatika_none_when_access_denied(self):
+        """Cannot read the candidate's exe path → unknown, never guess."""
+        import psutil
+        with mock.patch.object(psutil, "Process", side_effect=psutil.AccessDenied(999)):
+            assert launcher._is_manomatika_process(999) is None
+
+    def test_is_manomatika_none_when_process_already_gone(self):
+        import psutil
+        with mock.patch.object(psutil, "Process", side_effect=psutil.NoSuchProcess(999)):
+            assert launcher._is_manomatika_process(999) is None
+
+    # -- _force_kill_process ------------------------------------------------
+
+    def test_force_kill_process_kills_and_waits(self):
+        import psutil
+        proc = mock.MagicMock()
+        with mock.patch.object(psutil, "Process", return_value=proc):
+            launcher._force_kill_process(4242)
+        proc.kill.assert_called_once()
+        proc.wait.assert_called_once_with(timeout=5)
+
+    def test_force_kill_process_tolerates_already_gone(self):
+        import psutil
+        with mock.patch.object(psutil, "Process", side_effect=psutil.NoSuchProcess(4242)):
+            launcher._force_kill_process(4242)  # must not raise
+
+    # -- _wait_for_port_free ------------------------------------------------
+
+    def test_wait_for_port_free_true_when_already_free(self):
+        with mock.patch.object(launcher, "_port_available", return_value=True):
+            assert launcher._wait_for_port_free(8000, timeout=1.0) is True
+
+    def test_wait_for_port_free_false_on_timeout(self):
+        with mock.patch.object(launcher, "_port_available", return_value=False), \
+             mock.patch("time.sleep"):
+            assert launcher._wait_for_port_free(8000, timeout=0.05, interval=0.01) is False
+
+
+class TestHandlePortConflict:
+    """Unit tests for _handle_port_conflict — the full reclaim decision tree."""
+
+    def test_healthy_ours_opens_browser_and_exits_zero(self):
+        healthy = {"product": "ManoMatika", "status": "ok", "version": "0.0.4"}
+        with mock.patch.object(launcher, "_probe_healthz_with_retry", return_value=healthy), \
+             mock.patch("webbrowser.open") as mock_open, \
+             pytest.raises(SystemExit) as exc_info:
+            launcher._handle_port_conflict(8000)
+        assert exc_info.value.code == 0
+        mock_open.assert_called_once_with("http://127.0.0.1:8000")
+
+    def test_dead_ours_reclaims_kills_and_returns(self):
+        """Dead/unhealthy ManoMatika holder → kill it, confirm port free, RETURN
+        (does not exit) so the caller proceeds with a fresh launch."""
+        with mock.patch.object(launcher, "_probe_healthz_with_retry", return_value=None), \
+             mock.patch.object(launcher, "_find_port_holder_pid", return_value=4242), \
+             mock.patch.object(launcher, "_is_manomatika_process", return_value=True), \
+             mock.patch.object(launcher, "_force_kill_process") as kill, \
+             mock.patch.object(launcher, "_wait_for_port_free", return_value=True):
+            result = launcher._handle_port_conflict(8000)
+        assert result is None  # returned normally, did not sys.exit
+        kill.assert_called_once_with(4242)
+
+    def test_dead_ours_reclaim_kill_succeeds_but_port_still_held_fails_loud(self):
+        """Kill succeeded but the port never frees (e.g. a second process grabbed
+        it) → must NOT silently proceed; fail loud and exit 1."""
+        with mock.patch.object(launcher, "_probe_healthz_with_retry", return_value=None), \
+             mock.patch.object(launcher, "_find_port_holder_pid", return_value=4242), \
+             mock.patch.object(launcher, "_is_manomatika_process", return_value=True), \
+             mock.patch.object(launcher, "_force_kill_process") as kill, \
+             mock.patch.object(launcher, "_wait_for_port_free", return_value=False), \
+             mock.patch.object(launcher, "_show_port_error") as show_error, \
+             pytest.raises(SystemExit) as exc_info:
+            launcher._handle_port_conflict(8000)
+        assert exc_info.value.code == 1
+        kill.assert_called_once_with(4242)
+        show_error.assert_called_once_with(8000, holder_pid=4242)
+
+    def test_foreign_holder_fails_loud_and_never_kills(self):
+        """Positively-identified foreign process holding the port → fail loud
+        with port + holder PID, exit 1, and the holder is NEVER killed."""
+        with mock.patch.object(launcher, "_probe_healthz_with_retry", return_value=None), \
+             mock.patch.object(launcher, "_find_port_holder_pid", return_value=999), \
+             mock.patch.object(launcher, "_is_manomatika_process", return_value=False), \
+             mock.patch.object(launcher, "_force_kill_process") as kill, \
+             mock.patch.object(launcher, "_show_port_error") as show_error, \
+             pytest.raises(SystemExit) as exc_info:
+            launcher._handle_port_conflict(8000)
+        assert exc_info.value.code == 1
+        kill.assert_not_called()
+        show_error.assert_called_once_with(8000, holder_pid=999)
+
+    def test_ambiguous_no_holder_found_fails_loud_and_never_kills(self):
+        """Port is held (per the bind check) but no listening process could be
+        found — must never guess; fail loud, exit 1, no kill attempted."""
+        with mock.patch.object(launcher, "_probe_healthz_with_retry", return_value=None), \
+             mock.patch.object(launcher, "_find_port_holder_pid", return_value=None), \
+             mock.patch.object(launcher, "_force_kill_process") as kill, \
+             mock.patch.object(launcher, "_show_port_error") as show_error, \
+             pytest.raises(SystemExit) as exc_info:
+            launcher._handle_port_conflict(8000)
+        assert exc_info.value.code == 1
+        kill.assert_not_called()
+        show_error.assert_called_once_with(8000, holder_pid=None)
+
+    def test_ambiguous_unreadable_holder_fails_loud_and_never_kills(self):
+        """Holder PID found, but identity could not be determined (e.g.
+        AccessDenied reading its exe) → ambiguous, never guess, fail loud."""
+        with mock.patch.object(launcher, "_probe_healthz_with_retry", return_value=None), \
+             mock.patch.object(launcher, "_find_port_holder_pid", return_value=4242), \
+             mock.patch.object(launcher, "_is_manomatika_process", return_value=None), \
+             mock.patch.object(launcher, "_force_kill_process") as kill, \
+             mock.patch.object(launcher, "_show_port_error") as show_error, \
+             pytest.raises(SystemExit) as exc_info:
+            launcher._handle_port_conflict(8000)
+        assert exc_info.value.code == 1
+        kill.assert_not_called()
+        show_error.assert_called_once_with(8000, holder_pid=4242)
+
+
+class TestPortRecovery:
+    """Integration-style tests for the port-conflict branch wired into main()."""
+
+    def _run_main_with_port_taken(self, probe_return, tmp_path, **extra_patches):
+        """Run main() with _port_available=False and _probe_healthz_with_retry
+        returning probe_return. extra_patches are additional mock.patch.object
+        context managers (name -> kwargs dict) applied around the call."""
         (tmp_path / ".initialized").touch()
-        with mock.patch.object(launcher, "_setup_logging"), \
-             mock.patch.object(launcher, "_data_dir", return_value=tmp_path), \
-             mock.patch.object(launcher, "_load_env"), \
-             mock.patch.object(launcher, "_extract_bundled_plugins"), \
-             mock.patch.object(launcher, "_bundle_path", return_value=str(tmp_path)), \
-             mock.patch.object(launcher, "_port_available", return_value=False), \
-             mock.patch.object(launcher, "_probe_healthz", return_value=probe_return), \
-             mock.patch.dict(os.environ, {}):
+        patchers = [
+            mock.patch.object(launcher, "_setup_logging"),
+            mock.patch.object(launcher, "_data_dir", return_value=tmp_path),
+            mock.patch.object(launcher, "_load_env"),
+            mock.patch.object(launcher, "_extract_bundled_plugins"),
+            mock.patch.object(launcher, "_bundle_path", return_value=str(tmp_path)),
+            mock.patch.object(launcher, "_port_available", return_value=False),
+            mock.patch.object(launcher, "_probe_healthz_with_retry", return_value=probe_return),
+            mock.patch.dict(os.environ, {}),
+        ]
+        for name, kwargs in extra_patches.items():
+            patchers.append(mock.patch.object(launcher, name, **kwargs))
+        for p in patchers:
+            p.start()
+        try:
             launcher.main()
+        finally:
+            for p in reversed(patchers):
+                p.stop()
 
     def test_ours_opens_browser_and_exits_zero(self, tmp_path):
         """Own ManoMatika instance → open browser to existing window, exit 0."""
@@ -650,34 +911,57 @@ class TestPortRecovery:
         mock_open.assert_called_once_with("http://127.0.0.1:8000")
 
     def test_foreign_process_fails_loud_exits_one(self, tmp_path):
-        """Foreign process with own healthz body → show dialog, exit 1."""
-        foreign_healthz = {"product": "OtherApp", "status": "ok"}
+        """Positively-identified foreign holder → show dialog, exit 1, no kill."""
         with mock.patch.object(launcher, "_show_port_error"), \
              pytest.raises(SystemExit) as exc_info:
-            self._run_main_with_port_taken(foreign_healthz, tmp_path)
+            self._run_main_with_port_taken(
+                None, tmp_path,
+                _find_port_holder_pid={"return_value": 999},
+                _is_manomatika_process={"return_value": False},
+                _force_kill_process={"side_effect": AssertionError("must not kill foreign process")},
+            )
         assert exc_info.value.code == 1
 
-    def test_healthz_unreachable_treated_as_foreign(self, tmp_path):
-        """If /healthz is unreachable (None) → treated as foreign, exit 1."""
+    def test_ambiguous_holder_treated_as_fail_loud(self, tmp_path):
+        """No listening process could be identified → ambiguous, fail loud, exit 1."""
         with mock.patch.object(launcher, "_show_port_error"), \
              pytest.raises(SystemExit) as exc_info:
-            self._run_main_with_port_taken(None, tmp_path)
+            self._run_main_with_port_taken(
+                None, tmp_path,
+                _find_port_holder_pid={"return_value": None},
+            )
         assert exc_info.value.code == 1
 
-    def test_wrong_product_body_treated_as_foreign(self, tmp_path):
-        """Body has status:ok but no 'product' field → treated as foreign, exit 1."""
-        partial = {"status": "ok"}
-        with mock.patch.object(launcher, "_show_port_error"), \
-             pytest.raises(SystemExit) as exc_info:
-            self._run_main_with_port_taken(partial, tmp_path)
-        assert exc_info.value.code == 1
+    def test_dead_ours_reclaims_and_proceeds_to_fresh_launch(self, tmp_path):
+        """Dead ManoMatika holder → reclaim (kill + wait-for-free), then fall
+        through into the normal fresh-launch path (uvicorn server starts)."""
+        mock_server = mock.MagicMock()
+        mock_uvicorn = mock.MagicMock()
+        mock_uvicorn.Config.return_value = mock.MagicMock()
+        mock_uvicorn.Server.return_value = mock_server
 
-    def test_malformed_body_treated_as_foreign(self, tmp_path):
-        """Empty dict (no product/status fields) → treated as foreign, exit 1."""
-        with mock.patch.object(launcher, "_show_port_error"), \
-             pytest.raises(SystemExit) as exc_info:
-            self._run_main_with_port_taken({}, tmp_path)
-        assert exc_info.value.code == 1
+        (tmp_path / ".initialized").touch()
+        with mock.patch.object(launcher, "_setup_logging"), \
+             mock.patch.object(launcher, "_data_dir", return_value=tmp_path), \
+             mock.patch.object(launcher, "_load_env"), \
+             mock.patch.object(launcher, "_extract_bundled_plugins"), \
+             mock.patch.object(launcher, "_bundle_path", return_value=str(tmp_path)), \
+             mock.patch.object(launcher, "_port_available", return_value=False), \
+             mock.patch.object(launcher, "_probe_healthz_with_retry", return_value=None), \
+             mock.patch.object(launcher, "_find_port_holder_pid", return_value=4242), \
+             mock.patch.object(launcher, "_is_manomatika_process", return_value=True), \
+             mock.patch.object(launcher, "_force_kill_process") as kill, \
+             mock.patch.object(launcher, "_wait_for_port_free", return_value=True), \
+             mock.patch("signal.signal"), \
+             mock.patch("signal.getsignal", return_value=__import__("signal").default_int_handler), \
+             mock.patch.dict(sys.modules, {"uvicorn": mock_uvicorn}), \
+             mock.patch("threading.Thread"), \
+             mock.patch.dict(os.environ, {}):
+            launcher.main()  # must NOT raise SystemExit — falls through to launch
+
+        kill.assert_called_once_with(4242)
+        mock_uvicorn.Server.assert_called_once()
+        mock_server.run.assert_called_once()
 
 
 class TestShutdownHandler:
@@ -830,6 +1114,19 @@ class TestSpecPluginsDatasEntry:
         )
         assert 'collect_all("sqlalchemy")' in spec_text, (
             "matika.spec must collect_all('sqlalchemy')"
+        )
+
+    def test_spec_collects_psutil_for_launcher_reclaim(self):
+        """matika#113: launcher.py's port-holder reclaim logic imports psutil
+        lazily inside _find_port_holder_pid/_is_manomatika_process/
+        _force_kill_process, so static analysis alone misses it. psutil ships a
+        per-platform compiled extension (like curl_cffi), so it must use
+        collect_all rather than a plain hiddenimports entry."""
+        spec_path = Path(__file__).parent.parent / "matika.spec"
+        spec_text = spec_path.read_text()
+        assert '"psutil"' in spec_text, "matika.spec hiddenimports is missing psutil"
+        assert 'collect_all("psutil")' in spec_text, (
+            "matika.spec must collect_all('psutil')"
         )
 
     def test_spec_force_bundles_entire_matika_package(self, monkeypatch):

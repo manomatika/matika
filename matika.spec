@@ -240,6 +240,12 @@ hiddenimports = [
     "yfinance",
     "curl_cffi",
     "curl_cffi.requests",
+    # psutil — used by launcher.py's port-conflict reclaim logic
+    # (_find_port_holder_pid / _is_manomatika_process / _force_kill_process) to
+    # identify and, when safe, kill a dead ManoMatika process squatting on the
+    # configured port. Imported lazily inside those functions (not at module
+    # level), so static analysis alone would miss it.
+    "psutil",
 ]
 
 # ---------------------------------------------------------------------------
@@ -260,16 +266,27 @@ hiddenimports = [
 # suspenders for the specific late imports in _run_alembic_upgrade) and the
 # alembic.ini + migrations/ datas below, which the migration runtime resolves
 # at sys._MEIPASS-relative paths inside the frozen app.
+#
+# psutil follows the same collect_all treatment as curl_cffi: it ships a
+# compiled C-extension per platform (a plain hiddenimports entry would miss
+# the platform-specific binary), even though — unlike alembic/sqlalchemy — it
+# has no dynamic submodule loading of its own.
 # ---------------------------------------------------------------------------
 if collect_all is not None:
     _alembic_datas, _alembic_bins, _alembic_hidden = collect_all("alembic")
     _sqlalchemy_datas, _sqlalchemy_bins, _sqlalchemy_hidden = collect_all("sqlalchemy")
     _yfinance_datas, _yfinance_bins, _yfinance_hidden = collect_all("yfinance")
     _curl_cffi_datas, _curl_cffi_bins, _curl_cffi_hidden = collect_all("curl_cffi")
+    _psutil_datas, _psutil_bins, _psutil_hidden = collect_all("psutil")
 
-    datas += _alembic_datas + _sqlalchemy_datas + _yfinance_datas + _curl_cffi_datas
-    hiddenimports += _alembic_hidden + _sqlalchemy_hidden + _yfinance_hidden + _curl_cffi_hidden
-    _collected_binaries = _alembic_bins + _sqlalchemy_bins + _yfinance_bins + _curl_cffi_bins
+    datas += _alembic_datas + _sqlalchemy_datas + _yfinance_datas + _curl_cffi_datas + _psutil_datas
+    hiddenimports += (
+        _alembic_hidden + _sqlalchemy_hidden + _yfinance_hidden + _curl_cffi_hidden
+        + _psutil_hidden
+    )
+    _collected_binaries = (
+        _alembic_bins + _sqlalchemy_bins + _yfinance_bins + _curl_cffi_bins + _psutil_bins
+    )
 else:  # pragma: no cover - spec exec'd outside a real PyInstaller build
     _collected_binaries = []
 
