@@ -27,25 +27,25 @@ Responsibilities
    first-run init, DB/alembic, and plugin extraction — so a held port fails
    loud FAST instead of after minutes of boot work; see ``_resolve_port_conflict``):
    - The AUTHORITY for "is the configured port (MATIKA_PORT, default 8000 — see
-     ``_configured_port``) actually HELD" is a connect() probe (``_port_held``),
-     NOT a bind() probe: a bind() success is not a valid "is this port free?"
-     test because a peer server's SO_REUSEADDR lets a second SO_REUSEADDR
-     socket bind the same port (CI proved a second SO_REUSEADDR socket binds
-     over an ACTIVE listener on both macOS and Windows — the foot-gun that let
-     a foreign holder slip past the old bind-only gate on the fallback path).
-     connect() tests the kernel listen queue directly, so it is immune.
-   - Not held (connect refused) → port free → proceed to normal boot.
-   - Held (connect succeeds, or an ambiguous timeout) → identify WHO holds it
-     via the psutil holder-lookup. No holder attributable → held by an
-     unidentifiable process → fail loud (never boot over it).
-   - Holder identified → /healthz is the SOLE authority for "a healthy server
-     is up": 200 + status ok + product == ManoMatika → open a browser tab,
-     exit 0 (second-click path).
-   - Holder identified but /healthz does not answer healthy (dead/wedged) →
+     ``_configured_port``) actually held, and by whom" is the psutil
+     holder-lookup, NOT a bind() probe: a bind() success is not a valid
+     "is this port free?" test because a peer server's SO_REUSEADDR lets a
+     second SO_REUSEADDR socket bind the same port (the foot-gun that let a
+     foreign holder slip past the old bind-only gate).
+   - No holder → port free → proceed to normal boot. (A bind FAILURE with no
+     psutil holder → held by an unidentifiable process → fail loud.)
+   - Holder present → /healthz is the SOLE authority for "a healthy server is
+     up": 200 + status ok + product == ManoMatika → open a browser tab, exit 0
+     (second-click path).
+   - Holder present but /healthz does not answer healthy (dead/wedged/foreign) →
      if the holder is POSITIVELY identified as a ManoMatika process, force-kill
      it and start fresh (reclaim); if the holder is foreign or cannot be
-     positively identified, never guess — fail loud with the port + holder PID
-     and exit 1.
+     identified, never guess — fail loud with the port + holder PID and exit 1.
+   - FAIL LOUD, never block: every fail-loud exit writes the port + holder to
+     stderr and exits non-zero PROMPTLY. Any native error dialog is gated behind
+     ``_gui_dialogs_available`` (isatty / display env / not-CI) so a headless or
+     CI launch NEVER blocks on an un-dismissable modal — that blocking modal was
+     the ~120s foreign-holder gate timeout this launcher revision removes.
 
 4. App launch:
    - Load environment from ~/matika/.env
@@ -233,13 +233,56 @@ def _write_fatal(exc: BaseException) -> str:
     return tb_text
 
 
+def _gui_dialogs_available() -> bool:
+    """True only when an interactive display is present, so a blocking modal
+    dialog is safe to show.
+
+    Every fatal / port-conflict path must FAIL LOUD, but it must NEVER block on
+    a modal dialog in a headless, CI, or otherwise non-interactive context: a
+    never-dismissed ``messagebox.showerror`` is exactly the ~120s hang that made
+    the foreign-holder gate time out on the macOS/Windows runners. Those runners
+    DO have a window server, so ``tkinter`` opens the modal successfully and then
+    waits forever for a click that never comes ("app did not exit within 120s").
+    This gate keeps the friendly dialog for a real double-click / terminal launch
+    while guaranteeing the headless path logs to stderr and exits promptly.
+
+    Signals, in order:
+      * ``CI`` / ``MATIKA_HEADLESS`` set → automation → never pop a modal.
+      * an attached terminal (stdin isatty) → interactive dev / ``open`` launch.
+      * macOS / Windows → a user-launched GUI app has a window server available
+        (the automation case is already excluded above).
+      * POSIX/X11/Wayland → only when ``DISPLAY``/``WAYLAND_DISPLAY`` is set.
+    """
+    if os.environ.get("CI") or os.environ.get("MATIKA_HEADLESS"):
+        return False
+    try:
+        if sys.stdin is not None and sys.stdin.isatty():
+            return True
+    except (ValueError, OSError):
+        # A frozen windowed build can have no real stdin — fall through.
+        pass
+    if sys.platform == "darwin" or os.name == "nt":
+        return True
+    return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+
+
 def _show_fatal_dialog(tb_text: str) -> None:
-    """Show the user-facing 'cannot start' dialog with the failure detail."""
+    """FAIL LOUD on a fatal startup error: always write the detail to stderr,
+    and — ONLY in an interactive context — also pop a native dialog.
+
+    The modal is gated behind ``_gui_dialogs_available()`` so a headless / CI
+    launch never blocks on an un-dismissable ``messagebox`` (the ~120s hang);
+    ``_write_fatal`` has already persisted the full traceback to the log file.
+    """
     msg = (
         "ManoMatika cannot start — an error occurred during launch.\n\n"
         f"{tb_text.strip().splitlines()[-1] if tb_text.strip() else ''}\n\n"
         "See the log file in ~/matika/logs/ for the full traceback."
     )
+    # FAIL LOUD to stderr first — always, regardless of display availability.
+    print(f"ERROR: {msg}", file=sys.stderr)
+    if not _gui_dialogs_available():
+        return
     try:
         import tkinter as tk
         from tkinter import messagebox
@@ -249,7 +292,9 @@ def _show_fatal_dialog(tb_text: str) -> None:
         messagebox.showerror("ManoMatika — Startup Error", msg)
         root.destroy()
     except Exception:
-        print(f"ERROR: {msg}", file=sys.stderr)
+        # Display probing lied or Tk failed to init — the stderr line above
+        # already carried the failure detail.
+        pass
 
 
 def _excepthook(exc_type, exc, tb) -> None:
@@ -583,50 +628,35 @@ def first_run_init(data_dir: Path) -> None:
 # Port-conflict detection
 # ---------------------------------------------------------------------------
 
-def _port_held(port: int, timeout: float = 0.5) -> bool:
-    """AUTHORITATIVE "is the port held" signal — a connect() probe.
+def _port_available(port: int) -> bool:
+    """Best-effort bind probe. SECONDARY signal ONLY — never the decision authority.
 
-    Returns True if a connect() to 127.0.0.1:port succeeds (something is
-    LISTENing), False if it is refused (ECONNREFUSED — nothing is listening).
+    Returns True if a fresh socket can ``bind()`` the port, False otherwise.
 
-    connect() tests the kernel's listen queue directly, unlike a bind()
-    probe: a bind() success is NOT a valid "is this port free?" test, because
-    a well-behaved peer server sets ``SO_REUSEADDR`` too, and two
-    SO_REUSEADDR sockets can both ``bind()`` the same port — CI proved a
-    second SO_REUSEADDR socket binds over an ACTIVE listener on both macOS
-    and Windows. connect() has no such foot-gun: only the actual LISTENer can
-    accept a connection, so this is the sole authority for "held", for a
-    foreign holder, a healthy instance of our own, and a SIGSTOP'd dead-ours
-    holder alike (its socket stays open even though the process cannot
-    answer HTTP). WHO holds it is a separate question, answered by psutil —
-    see ``_resolve_port_conflict``.
+    A bind() SUCCESS is NOT a valid "is this port free?" test: this probe sets
+    ``SO_REUSEADDR`` (so a recently-closed port in TIME_WAIT is not misreported
+    as held), and a well-behaved peer server ALSO sets ``SO_REUSEADDR`` — two
+    SO_REUSEADDR sockets can bind the same port, so bind() can succeed against a
+    genuinely-held port. That foot-gun is exactly what let a foreign holder slip
+    past the old ``if not _port_available: handle`` gate. Therefore:
 
-    A connect TIMEOUT (saturated listen backlog, a firewall black-holing the
-    attempt) is treated as HELD, never "free" — ambiguous must never fall
-    through to a "proceed to boot" decision; it costs one bounded probe
-    timeout rather than risking a silent double-bind. A socket that
-    ``bind()``s but never calls ``listen()`` is platform-dependent — verified
-    empirically on both: Linux's kernel has nothing in LISTEN state for the
-    port and returns ECONNREFUSED immediately (reported free here), while
-    macOS/BSD sends neither a SYN-ACK nor an RST for it, so the connect
-    attempt hangs until the timeout (reported held). Either outcome is
-    safe — the real target platforms (macOS, Windows) never leave a listener
-    permanently un-``listen()``ed, so this is a startup micro-race at worst,
-    and a real uvicorn bind will surface any genuine conflict loudly on its
-    own. The short default timeout keeps that
-    cost low so a genuinely foreign holder is still detected and failed loud
-    FAST.
+    * The AUTHORITY for "is the port actually held, and by whom" is the psutil
+      holder-lookup (``_find_port_holder_pid``) — see ``_resolve_port_conflict``.
+    * This bind probe is kept only as a SECONDARY net: a bind FAILURE remains
+      reliable evidence that the port is held (SO_REUSEADDR only makes bind more
+      permissive, never less), so it catches a holder psutil could not attribute
+      before we boot over it. bind SUCCESS is trusted as "free" ONLY when psutil
+      has ALSO found no holder.
+    * It also backs ``_wait_for_port_free`` after a reclaim kill, where the
+      killed process is confirmed gone so the foot-gun does not apply.
     """
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.settimeout(timeout)
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
-            s.connect(("127.0.0.1", port))
+            s.bind(("127.0.0.1", port))
             return True
-        except ConnectionRefusedError:
-            return False
         except OSError:
-            # Includes socket.timeout — ambiguous is never "free".
-            return True
+            return False
 
 
 def _probe_healthz(port: int, timeout: float = 2.0) -> dict | None:
@@ -686,19 +716,34 @@ def _wait_for_ready(
 
 
 def _show_port_error(port: int, holder_pid: int | None = None) -> None:
-    """Display a user-friendly error when the port is already in use.
+    """FAIL LOUD when the configured port cannot be claimed.
 
-    *holder_pid*, when known, is included so the message is actionable (rule
-    18 — fail loud with the port AND the holder PID, never a bare "in use").
+    Always writes the reason — the port plus the holder PID and (best-effort)
+    process name — to stderr so the diagnostic is captured in every context
+    (rule 18 — fail loud with the port AND the holder, never a bare "in use").
+    A native dialog is shown ONLY in an interactive context: the modal is gated
+    behind ``_gui_dialogs_available()`` so a headless / CI launch never blocks on
+    an un-dismissable ``messagebox`` — that blocking modal was the ~120s
+    foreign-holder gate hang. Headless logs to stderr and lets the caller exit
+    non-zero promptly.
     """
-    holder_clause = f" by process {holder_pid}" if holder_pid is not None else ""
+    holder_clause = ""
+    if holder_pid is not None:
+        name = _holder_name(holder_pid)
+        holder_clause = f" by process {holder_pid}" + (f" ({name})" if name else "")
     message = (
         f"ManoMatika cannot start because port {port} is already in use{holder_clause}.\n\n"
         f"Another application is listening on port {port}.  Please either:\n"
         f"  • Close the application that is using port {port}, or\n"
         f"  • Restart your computer and try again."
     )
-    # Try a native dialog; fall back to console if not available.
+    # FAIL LOUD to stderr FIRST — always, regardless of display availability, so
+    # the diagnostic is captured even when no GUI can be shown (the CI gate and
+    # terminal launches capture stderr; Finder discards it but the log file and
+    # the logger.error at the call site cover that path).
+    print(f"ERROR: {message}", file=sys.stderr)
+    if not _gui_dialogs_available():
+        return
     try:
         import tkinter as tk
         from tkinter import messagebox
@@ -708,7 +753,9 @@ def _show_port_error(port: int, holder_pid: int | None = None) -> None:
         messagebox.showerror("ManoMatika — Port Conflict", message)
         root.destroy()
     except Exception:
-        print(f"ERROR: {message}", file=sys.stderr)
+        # Display probing lied or Tk failed to init — the stderr message above
+        # already carried the failure detail.
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -762,6 +809,21 @@ def _find_port_holder_pid(port: int) -> int | None:
     return None
 
 
+def _holder_name(pid: int) -> str | None:
+    """Best-effort human-readable name of the process holding the port.
+
+    Purely diagnostic — enriches the fail-loud message so a support log names
+    WHICH foreign process is squatting the port, not just its PID. Returns None
+    (and never raises) if psutil cannot read the process (gone / AccessDenied).
+    """
+    try:
+        import psutil
+
+        return psutil.Process(pid).name()
+    except Exception:
+        return None
+
+
 def _is_manomatika_process(pid: int) -> bool | None:
     """Identify whether *pid* is a ManoMatika process.
 
@@ -813,10 +875,10 @@ def _force_kill_process(pid: int) -> None:
 
 
 def _wait_for_port_free(port: int, timeout: float = 5.0, interval: float = 0.2) -> bool:
-    """Poll ``_port_held(port)`` until it reports free, or *timeout* elapses."""
+    """Poll ``_port_available(port)`` until True or *timeout* elapses."""
     deadline = time.monotonic() + timeout
     while True:
-        if not _port_held(port):
+        if _port_available(port):
             return True
         if time.monotonic() >= deadline:
             return False
@@ -831,43 +893,46 @@ def _resolve_port_conflict(port: int) -> None:
     fails loud FAST (the gate's 120s-timeout expectation is a fast fail-loud
     exit) instead of doing minutes of boot work over a doomed port.
 
-    The AUTHORITY for "is the port actually held" is a connect() probe
-    (``_port_held``), NOT a ``bind()`` probe: a bind() success is not a valid
-    "is this port free?" test because a peer server that sets ``SO_REUSEADDR``
-    (as well-behaved servers do) lets a second SO_REUSEADDR socket bind the
-    same port — CI proved this lets a bind-based fallback report a
-    genuinely-held foreign port as free on both macOS and Windows. connect()
-    tests the kernel listen queue directly, so it is immune. WHO holds the
-    port — needed only once we know it IS held — is a separate question,
-    answered by the psutil holder-lookup (``_find_port_holder_pid``).
+    The AUTHORITY for "is the port actually held, and by whom" is the psutil
+    holder-lookup (``_find_port_holder_pid``), NOT a ``bind()`` probe: a bind()
+    success is not a valid "is this port free?" test because a peer server that
+    sets ``SO_REUSEADDR`` (as well-behaved servers do) lets a second
+    SO_REUSEADDR socket bind the same port — so the old bind-only gate reported a
+    genuinely-held foreign port as free and never fired. See ``_port_available``.
 
     Outcomes:
-      - Not held (connect refused) → genuinely free → return so the caller
-        proceeds to boot.
-      - Held (connect succeeded, or an ambiguous timeout) → look up the
-        holder via psutil:
-          · holder found → delegate to ``_handle_port_conflict`` (healthz →
-            healthy-defer / reclaim-ours / fail-loud-foreign).
-          · no holder attributable → the port is CONFIRMED held (by the
-            connect probe) but psutil could not identify who → fail loud
-            (ambiguous holder); never boot over an unknown holder.
+      - psutil finds a holder → delegate to ``_handle_port_conflict`` (healthz →
+        healthy-defer / reclaim-ours / fail-loud-foreign).
+      - psutil finds no holder:
+          · a plain bind still FAILS → the port is held by a process psutil
+            could not attribute → fail loud (ambiguous holder); never boot over
+            an unknown holder.
+          · bind succeeds → with psutil also reporting no holder, genuinely free
+            → return so the caller proceeds to boot.
 
     Returns normally ONLY when the port is free or a dead ManoMatika holder was
     reclaimed; every other outcome calls ``sys.exit()`` and never returns.
     """
-    if not _port_held(port):
-        logger.info("port %d free (connect refused) — proceeding with boot", port)
-        return
-
     holder_pid = _find_port_holder_pid(port)
     if holder_pid is not None:
         _handle_port_conflict(port, holder_pid)
         return
 
+    # psutil attributed no holder. Trust a bind FAILURE (reliable) as evidence
+    # the port is nonetheless held by a process we could not see; a bind SUCCESS
+    # here — with psutil ALSO finding no holder — means the port is genuinely
+    # free. bind SUCCESS is never trusted as "free" on its own (SO_REUSEADDR).
+    if _port_available(port):
+        logger.info(
+            "port %d free (psutil found no holder, bind succeeded) — proceeding with boot",
+            port,
+        )
+        return
+
     logger.error(
-        "port %d is held (connect probe) but no listening process could be "
-        "identified (psutil found no holder); refusing to guess — failing "
-        "loud rather than boot over an unknown holder",
+        "port %d is held but no listening process could be identified "
+        "(psutil found no holder, yet the port will not bind); refusing to "
+        "guess — failing loud rather than boot over an unknown holder",
         port,
     )
     _show_port_error(port, holder_pid=None)
@@ -878,10 +943,11 @@ def _handle_port_conflict(port: int, holder_pid: int) -> None:
     """Resolve a port held by *holder_pid*: defer to a healthy instance, reclaim
     a dead ManoMatika one, or fail loud on a foreign/unidentifiable holder.
 
-    Called only after the caller (``_resolve_port_conflict``) has confirmed
-    *port* is held (via the connect() probe) and identified *holder_pid* as
-    the LISTENing process via psutil. The holder PID is passed in — the
-    psutil lookup is done ONCE, in the caller.
+    Called only when psutil has POSITIVELY identified *holder_pid* as the
+    process holding *port* (see ``_resolve_port_conflict``). The holder PID is
+    passed in — the psutil lookup is done ONCE, in the caller, so the "is the
+    port held" decision and the "who holds it" identity come from the same
+    authoritative source.
 
     - /healthz (with a short bounded retry) answers 200 with
       ``status == "ok"`` AND ``product == "ManoMatika"`` → a healthy instance is
@@ -989,16 +1055,21 @@ def main() -> None:
         except Exception as exc:  # pragma: no cover
             logging.exception("first-run setup failed")
             msg = f"ManoMatika first-run setup failed:\n\n{exc}\n\nManoMatika cannot start."
-            try:
-                import tkinter as tk
-                from tkinter import messagebox
+            # FAIL LOUD to stderr first — always. The modal is gated behind
+            # _gui_dialogs_available() so a headless / CI launch never blocks on
+            # an un-dismissable dialog.
+            print(f"ERROR: {msg}", file=sys.stderr)
+            if _gui_dialogs_available():
+                try:
+                    import tkinter as tk
+                    from tkinter import messagebox
 
-                root = tk.Tk()
-                root.withdraw()
-                messagebox.showerror("ManoMatika — Setup Error", msg)
-                root.destroy()
-            except Exception:
-                print(f"ERROR: {msg}", file=sys.stderr)
+                    root = tk.Tk()
+                    root.withdraw()
+                    messagebox.showerror("ManoMatika — Setup Error", msg)
+                    root.destroy()
+                except Exception:
+                    pass
             sys.exit(1)
 
     # --- Plugin install / refresh (EVERY launch) -----------------------------
