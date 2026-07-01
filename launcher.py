@@ -23,18 +23,24 @@ Responsibilities
      the FIRST action after ~/matika/ is created, so a Finder-launched crash
      always leaves a diagnosable log on disk.
 
-3. Port-conflict detection and health-gated reclaim:
-   - Before starting uvicorn, probe the configured port (MATIKA_PORT env var,
-     default 8000 — see ``_configured_port``).  /healthz is the SOLE
-     authority for "a healthy server is up"; process-alive / port-bound
-     alone are never sufficient.
-   - Healthy ManoMatika instance already there → open a browser tab to it,
-     exit 0 (second-click path).
-   - Port held but /healthz does not answer healthy (dead/wedged/crashed) →
-     identify the holder via psutil; if POSITIVELY identified as a
-     ManoMatika process, force-kill it and start fresh (reclaim). If the
-     holder is foreign or cannot be identified, never guess — fail loud
-     with the port + holder PID and exit 1.
+3. Port-conflict detection and health-gated reclaim (decided EARLY — before
+   first-run init, DB/alembic, and plugin extraction — so a held port fails
+   loud FAST instead of after minutes of boot work; see ``_resolve_port_conflict``):
+   - The AUTHORITY for "is the configured port (MATIKA_PORT, default 8000 — see
+     ``_configured_port``) actually held, and by whom" is the psutil
+     holder-lookup, NOT a bind() probe: a bind() success is not a valid
+     "is this port free?" test because a peer server's SO_REUSEADDR lets a
+     second SO_REUSEADDR socket bind the same port (the foot-gun that let a
+     foreign holder slip past the old bind-only gate).
+   - No holder → port free → proceed to normal boot. (A bind FAILURE with no
+     psutil holder → held by an unidentifiable process → fail loud.)
+   - Holder present → /healthz is the SOLE authority for "a healthy server is
+     up": 200 + status ok + product == ManoMatika → open a browser tab, exit 0
+     (second-click path).
+   - Holder present but /healthz does not answer healthy (dead/wedged/foreign) →
+     if the holder is POSITIVELY identified as a ManoMatika process, force-kill
+     it and start fresh (reclaim); if the holder is foreign or cannot be
+     identified, never guess — fail loud with the port + holder PID and exit 1.
 
 4. App launch:
    - Load environment from ~/matika/.env
@@ -573,7 +579,27 @@ def first_run_init(data_dir: Path) -> None:
 # ---------------------------------------------------------------------------
 
 def _port_available(port: int) -> bool:
-    """Return True if port can be bound on localhost (False = port already in use)."""
+    """Best-effort bind probe. SECONDARY signal ONLY — never the decision authority.
+
+    Returns True if a fresh socket can ``bind()`` the port, False otherwise.
+
+    A bind() SUCCESS is NOT a valid "is this port free?" test: this probe sets
+    ``SO_REUSEADDR`` (so a recently-closed port in TIME_WAIT is not misreported
+    as held), and a well-behaved peer server ALSO sets ``SO_REUSEADDR`` — two
+    SO_REUSEADDR sockets can bind the same port, so bind() can succeed against a
+    genuinely-held port. That foot-gun is exactly what let a foreign holder slip
+    past the old ``if not _port_available: handle`` gate. Therefore:
+
+    * The AUTHORITY for "is the port actually held, and by whom" is the psutil
+      holder-lookup (``_find_port_holder_pid``) — see ``_resolve_port_conflict``.
+    * This bind probe is kept only as a SECONDARY net: a bind FAILURE remains
+      reliable evidence that the port is held (SO_REUSEADDR only makes bind more
+      permissive, never less), so it catches a holder psutil could not attribute
+      before we boot over it. bind SUCCESS is trusted as "free" ONLY when psutil
+      has ALSO found no holder.
+    * It also backs ``_wait_for_port_free`` after a reclaim kill, where the
+      killed process is confirmed gone so the foot-gun does not apply.
+    """
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
@@ -777,35 +803,98 @@ def _wait_for_port_free(port: int, timeout: float = 5.0, interval: float = 0.2) 
         time.sleep(interval)
 
 
-def _handle_port_conflict(port: int) -> None:
-    """Resolve a held *port*: defer to a healthy instance, reclaim a dead one,
-    or fail loud. Called only when ``_port_available(port)`` is False.
+def _resolve_port_conflict(port: int) -> None:
+    """Decide free / defer / reclaim / fail-loud for *port* BEFORE expensive boot.
 
-    - /healthz (with a short bounded retry) identifies as a healthy ManoMatika
-      instance → a live instance is already serving; open a tab and exit 0
-      (the existing second-click path).
-    - /healthz does not answer healthy AND the holder is POSITIVELY identified
-      as a ManoMatika process → dead/wedged instance; force-kill it, confirm
+    Called EARLY in ``main()`` — before first-run init, DB/alembic stamping, and
+    plugin extraction — so a held port is caught immediately and the launcher
+    fails loud FAST (the gate's 120s-timeout expectation is a fast fail-loud
+    exit) instead of doing minutes of boot work over a doomed port.
+
+    The AUTHORITY for "is the port actually held, and by whom" is the psutil
+    holder-lookup (``_find_port_holder_pid``), NOT a ``bind()`` probe: a bind()
+    success is not a valid "is this port free?" test because a peer server that
+    sets ``SO_REUSEADDR`` (as well-behaved servers do) lets a second
+    SO_REUSEADDR socket bind the same port — so the old bind-only gate reported a
+    genuinely-held foreign port as free and never fired. See ``_port_available``.
+
+    Outcomes:
+      - psutil finds a holder → delegate to ``_handle_port_conflict`` (healthz →
+        healthy-defer / reclaim-ours / fail-loud-foreign).
+      - psutil finds no holder:
+          · a plain bind still FAILS → the port is held by a process psutil
+            could not attribute → fail loud (ambiguous holder); never boot over
+            an unknown holder.
+          · bind succeeds → with psutil also reporting no holder, genuinely free
+            → return so the caller proceeds to boot.
+
+    Returns normally ONLY when the port is free or a dead ManoMatika holder was
+    reclaimed; every other outcome calls ``sys.exit()`` and never returns.
+    """
+    holder_pid = _find_port_holder_pid(port)
+    if holder_pid is not None:
+        _handle_port_conflict(port, holder_pid)
+        return
+
+    # psutil attributed no holder. Trust a bind FAILURE (reliable) as evidence
+    # the port is nonetheless held by a process we could not see; a bind SUCCESS
+    # here — with psutil ALSO finding no holder — means the port is genuinely
+    # free. bind SUCCESS is never trusted as "free" on its own (SO_REUSEADDR).
+    if _port_available(port):
+        logger.info(
+            "port %d free (psutil found no holder, bind succeeded) — proceeding with boot",
+            port,
+        )
+        return
+
+    logger.error(
+        "port %d is held but no listening process could be identified "
+        "(psutil found no holder, yet the port will not bind); refusing to "
+        "guess — failing loud rather than boot over an unknown holder",
+        port,
+    )
+    _show_port_error(port, holder_pid=None)
+    sys.exit(1)
+
+
+def _handle_port_conflict(port: int, holder_pid: int) -> None:
+    """Resolve a port held by *holder_pid*: defer to a healthy instance, reclaim
+    a dead ManoMatika one, or fail loud on a foreign/unidentifiable holder.
+
+    Called only when psutil has POSITIVELY identified *holder_pid* as the
+    process holding *port* (see ``_resolve_port_conflict``). The holder PID is
+    passed in — the psutil lookup is done ONCE, in the caller, so the "is the
+    port held" decision and the "who holds it" identity come from the same
+    authoritative source.
+
+    - /healthz (with a short bounded retry) answers 200 with
+      ``status == "ok"`` AND ``product == "ManoMatika"`` → a healthy instance is
+      already serving; open a tab and exit 0 (the existing second-click path).
+    - /healthz does not answer healthy (dead / wedged / foreign) AND the holder
+      is POSITIVELY identified as a ManoMatika process → force-kill it, confirm
       the port is free, and return so the caller proceeds with a fresh launch.
-    - Anything else (foreign holder, or a holder that cannot be identified) →
-      never guess; fail loud with the port and holder PID (when known) and
-      exit 1.
+    - Anything else (foreign holder, or a holder whose identity is ambiguous) →
+      never guess, never kill; fail loud with the port and holder PID and exit 1.
 
-    Returns normally ONLY in the reclaim-succeeded case; every other case
-    calls ``sys.exit()`` and never returns.
+    Returns normally ONLY in the reclaim-succeeded case; every other case calls
+    ``sys.exit()`` and never returns.
     """
     healthz_data = _probe_healthz_with_retry(port)
-    if healthz_data and healthz_data.get("product") == "ManoMatika":
+    healthy = bool(
+        healthz_data
+        and healthz_data.get("status") == "ok"
+        and healthz_data.get("product") == "ManoMatika"
+    )
+    if healthy:
         logger.info(
-            "port %d already held by a healthy ManoMatika instance (healthz: %r); "
-            "focusing existing window",
-            port, healthz_data,
+            "port %d already held by a healthy ManoMatika instance (pid %d, "
+            "healthz: %r); focusing existing window",
+            port, holder_pid, healthz_data,
         )
         webbrowser.open(f"http://127.0.0.1:{port}")
         sys.exit(0)
 
-    holder_pid = _find_port_holder_pid(port)
-    is_ours = _is_manomatika_process(holder_pid) if holder_pid is not None else None
+    is_ours = _is_manomatika_process(holder_pid)
 
     if is_ours is True:
         logger.warning(
@@ -826,18 +915,14 @@ def _handle_port_conflict(port: int) -> None:
                     port, holder_pid)
         return  # caller falls through to the normal fresh-launch path
 
-    if holder_pid is None:
-        logger.error(
-            "port %d held but no listening process could be identified (healthz %s); "
-            "refusing to guess — failing loud",
-            port, healthz_data if healthz_data else "unreachable",
-        )
-    else:
-        logger.error(
-            "port %d held by pid %d, which is NOT identified as a ManoMatika process "
-            "(healthz %s); refusing to kill a foreign process — failing loud",
-            port, holder_pid, healthz_data if healthz_data else "unreachable",
-        )
+    # Foreign holder (is_ours False) or ambiguous identity (is_ours None) — never
+    # guess, never kill. The message carries the strings the gate asserts on
+    # ("NOT identified as a ManoMatika process" and "refusing to kill").
+    logger.error(
+        "port %d held by pid %d, which is NOT identified as a ManoMatika process "
+        "(healthz %s); refusing to kill a foreign process — failing loud",
+        port, holder_pid, healthz_data if healthz_data else "unreachable",
+    )
     _show_port_error(port, holder_pid=holder_pid)
     sys.exit(1)
 
@@ -858,6 +943,29 @@ def main() -> None:
     sentinel = data_dir / ".initialized"
     env_path = data_dir / ".env"
 
+    # --- Load environment (before the port decision) --------------------------
+    # Load ~/matika/.env early so the configured port reflects any MATIKA_PORT
+    # override before we probe for a conflict. On first run .env does not yet
+    # exist (it is written by first_run_init below) — _load_env is then a no-op,
+    # and SECRET_KEY still lands in os.environ because _generate_secret_key sets
+    # it directly. _load_env uses setdefault, so a pre-set shell env var wins.
+    _load_env(env_path)
+
+    # Configured port — read AFTER _load_env so ~/matika/.env (and any pre-set
+    # shell env var) can override the default. See _configured_port.
+    port = _configured_port()
+
+    # --- Port conflict decision (EARLY — before any expensive boot work) ------
+    # Decide free-vs-held-vs-reclaim BEFORE first-run init, DB/alembic stamping,
+    # and plugin extraction, so a foreign holder is caught immediately and the
+    # app fails loud fast rather than doing minutes of boot work over a doomed
+    # port. _resolve_port_conflict only returns when the port is free or a dead
+    # ManoMatika holder was reclaimed; every other outcome (healthy instance
+    # found → tab + exit 0, foreign/ambiguous holder → fail loud + exit 1) calls
+    # sys.exit() itself. psutil holder-lookup — NOT a bind probe — is the
+    # authority (SO_REUSEADDR makes bind() success an invalid "free?" test).
+    _resolve_port_conflict(port)
+
     # --- First-run init -------------------------------------------------------
     if not sentinel.exists():
         try:
@@ -876,13 +984,6 @@ def main() -> None:
             except Exception:
                 print(f"ERROR: {msg}", file=sys.stderr)
             sys.exit(1)
-
-    # --- Load environment -----------------------------------------------------
-    _load_env(env_path)
-
-    # Configured port — read AFTER _load_env so ~/matika/.env (and any
-    # pre-set shell env var) can override the default. See _configured_port.
-    port = _configured_port()
 
     # --- Plugin install / refresh (EVERY launch) -----------------------------
     # Runs unconditionally — NOT gated by the first-run sentinel — so an upgrade
@@ -911,13 +1012,6 @@ def main() -> None:
             if current_pythonpath
             else bundled_src
         )
-
-    # --- Port conflict check / health-gated reclaim ----------------------------
-    # _handle_port_conflict only returns when it reclaimed a dead ManoMatika
-    # process and the port is now free; every other outcome (healthy instance
-    # found, foreign holder, ambiguous holder) calls sys.exit() itself.
-    if not _port_available(port):
-        _handle_port_conflict(port)
 
     # --- Launch ---------------------------------------------------------------
     logger.info("Starting uvicorn on http://127.0.0.1:%s", port)
