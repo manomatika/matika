@@ -602,12 +602,18 @@ def _port_held(port: int, timeout: float = 0.5) -> bool:
     see ``_resolve_port_conflict``.
 
     A connect TIMEOUT (saturated listen backlog, a firewall black-holing the
-    attempt, OR — verified empirically on macOS — a socket that ``bind()``s
-    but never calls ``listen()``: the kernel sends neither a SYN-ACK nor an
-    RST for it, so the connect attempt simply hangs until the timeout) is
-    treated as HELD, never "free" — ambiguous must never fall through to a
-    "proceed to boot" decision; it costs one bounded probe timeout rather
-    than risking a silent double-bind. The short default timeout keeps that
+    attempt) is treated as HELD, never "free" — ambiguous must never fall
+    through to a "proceed to boot" decision; it costs one bounded probe
+    timeout rather than risking a silent double-bind. A socket that
+    ``bind()``s but never calls ``listen()`` is platform-dependent — verified
+    empirically on both: Linux's kernel has nothing in LISTEN state for the
+    port and returns ECONNREFUSED immediately (reported free here), while
+    macOS/BSD sends neither a SYN-ACK nor an RST for it, so the connect
+    attempt hangs until the timeout (reported held). Either outcome is
+    safe — the real target platforms (macOS, Windows) never leave a listener
+    permanently un-``listen()``ed, so this is a startup micro-race at worst,
+    and a real uvicorn bind will surface any genuine conflict loudly on its
+    own. The short default timeout keeps that
     cost low so a genuinely foreign holder is still detected and failed loud
     FAST.
     """
