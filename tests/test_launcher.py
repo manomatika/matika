@@ -491,22 +491,27 @@ class TestFirstRunInit:
 
 
 # ---------------------------------------------------------------------------
-# _port_available / _probe_healthz / _wait_for_ready
+# _port_held / _probe_healthz / _wait_for_ready
 # ---------------------------------------------------------------------------
 
-class TestPortBindDetection:
-    def test_available_when_port_is_free(self):
-        """_port_available returns True for a port no one holds."""
+class TestPortHeldDetection:
+    """Unit tests for _port_held — the connect()-based AUTHORITY for "is the
+    port held". Immune to the SO_REUSEADDR foot-gun that let a bind()-based
+    probe report a genuinely-held port as free (matika#N, rc.14)."""
+
+    def test_free_when_connect_refused(self):
+        """No one is listening → connect() is refused → not held."""
         import socket as _socket
         # Bind-and-release to grab an OS-assigned free port.
         with _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM) as s:
             s.bind(("127.0.0.1", 0))
             free_port = s.getsockname()[1]
-        # Port is now released — should be available.
-        assert launcher._port_available(free_port) is True
+        # Port is now released — connect() should be refused.
+        assert launcher._port_held(free_port) is False
 
-    def test_unavailable_when_port_is_bound(self):
-        """_port_available returns False when another socket holds the port."""
+    def test_held_when_listener_present(self):
+        """A real listener answers connect() → held, even though it also sets
+        SO_REUSEADDR (the exact condition that defeated the old bind probe)."""
         import socket as _socket
         srv = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
         srv.setsockopt(_socket.SOL_SOCKET, _socket.SO_REUSEADDR, 1)
@@ -514,7 +519,40 @@ class TestPortBindDetection:
         srv.listen(1)
         port = srv.getsockname()[1]
         try:
-            assert launcher._port_available(port) is False
+            assert launcher._port_held(port) is True
+        finally:
+            srv.close()
+
+    def test_held_on_connect_timeout(self):
+        """A connect() timeout is ambiguous — treated as HELD, never 'free'."""
+        import socket as _socket
+        mock_sock = mock.MagicMock()
+        mock_sock.__enter__ = mock.MagicMock(return_value=mock_sock)
+        mock_sock.__exit__ = mock.MagicMock(return_value=False)
+        mock_sock.connect.side_effect = _socket.timeout()
+        with mock.patch.object(_socket, "socket", return_value=mock_sock):
+            assert launcher._port_held(8000) is True
+
+    def test_bound_but_not_listening_resolves_without_hanging(self):
+        """A holder that bind()s but never listen()s is platform-dependent —
+        verified empirically on both: Linux's kernel has nothing in LISTEN
+        state for the port and returns ECONNREFUSED immediately (reported
+        free), while macOS/BSD sends neither SYN-ACK nor RST for it, so the
+        connect() attempt times out (reported held, ambiguous never 'free').
+        Both are safe, bounded outcomes; the probe must resolve within its
+        timeout rather than hang, regardless of which one the host OS gives."""
+        import socket as _socket
+        import time as _time
+        srv = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+        srv.setsockopt(_socket.SOL_SOCKET, _socket.SO_REUSEADDR, 1)
+        srv.bind(("127.0.0.1", 0))
+        port = srv.getsockname()[1]
+        try:
+            start = _time.monotonic()
+            result = launcher._port_held(port, timeout=0.2)
+            elapsed = _time.monotonic() - start
+            assert result in (True, False)
+            assert elapsed < 2.0, f"_port_held took {elapsed}s — must respect the timeout bound"
         finally:
             srv.close()
 
@@ -783,62 +821,63 @@ class TestPortHolderIdentification:
     # -- _wait_for_port_free ------------------------------------------------
 
     def test_wait_for_port_free_true_when_already_free(self):
-        with mock.patch.object(launcher, "_port_available", return_value=True):
+        with mock.patch.object(launcher, "_port_held", return_value=False):
             assert launcher._wait_for_port_free(8000, timeout=1.0) is True
 
     def test_wait_for_port_free_false_on_timeout(self):
-        with mock.patch.object(launcher, "_port_available", return_value=False), \
+        with mock.patch.object(launcher, "_port_held", return_value=True), \
              mock.patch("time.sleep"):
             assert launcher._wait_for_port_free(8000, timeout=0.05, interval=0.01) is False
 
 
 class TestResolvePortConflict:
-    """Unit tests for _resolve_port_conflict — the EARLY, psutil-authoritative
-    entry point that decides free / delegate / ambiguous-fail-loud.
+    """Unit tests for _resolve_port_conflict — the EARLY entry point that
+    decides free / delegate / ambiguous-fail-loud.
 
-    The psutil holder-lookup (_find_port_holder_pid) — NOT the bind probe — is
-    the authority for "is the port held". _port_available is consulted only as a
-    secondary net when psutil attributes no holder.
+    The connect()-based probe (_port_held) is the sole AUTHORITY for "is the
+    port held". psutil (_find_port_holder_pid) is consulted only once held is
+    already confirmed, to answer "who holds it".
     """
 
-    def test_no_holder_and_bind_ok_proceeds(self):
-        """psutil finds no holder AND the port binds → genuinely free → return
-        None (caller proceeds to boot); no conflict handler invoked."""
-        with mock.patch.object(launcher, "_find_port_holder_pid", return_value=None), \
-             mock.patch.object(launcher, "_port_available", return_value=True), \
+    def test_not_held_proceeds(self):
+        """connect() refused → genuinely free → return None (caller proceeds
+        to boot); psutil is never consulted, no conflict handler invoked."""
+        with mock.patch.object(launcher, "_port_held", return_value=False), \
+             mock.patch.object(launcher, "_find_port_holder_pid") as find_holder, \
              mock.patch.object(launcher, "_handle_port_conflict") as handle:
             result = launcher._resolve_port_conflict(8000)
         assert result is None
+        find_holder.assert_not_called()
         handle.assert_not_called()
 
-    def test_no_holder_but_bind_fails_is_ambiguous_fail_loud(self):
-        """psutil finds no holder but the port will NOT bind → held by a process
-        psutil could not attribute → fail loud (exit 1), never boot over it."""
-        with mock.patch.object(launcher, "_find_port_holder_pid", return_value=None), \
-             mock.patch.object(launcher, "_port_available", return_value=False), \
+    def test_held_but_holder_unidentifiable_is_ambiguous_fail_loud(self):
+        """connect() confirms the port IS held, but psutil can't attribute a
+        holder → ambiguous → fail loud (exit 1), never boot over it."""
+        with mock.patch.object(launcher, "_port_held", return_value=True), \
+             mock.patch.object(launcher, "_find_port_holder_pid", return_value=None), \
              mock.patch.object(launcher, "_show_port_error") as show_error, \
              pytest.raises(SystemExit) as exc_info:
             launcher._resolve_port_conflict(8000)
         assert exc_info.value.code == 1
         show_error.assert_called_once_with(8000, holder_pid=None)
 
-    def test_holder_found_delegates_with_pid(self):
-        """psutil finds a holder → delegate to _handle_port_conflict with that
-        exact PID. The bind probe is NOT consulted (psutil is authoritative)."""
-        with mock.patch.object(launcher, "_find_port_holder_pid", return_value=4242), \
-             mock.patch.object(launcher, "_port_available") as bind_probe, \
+    def test_held_and_holder_found_delegates_with_pid(self):
+        """connect() confirms held, psutil finds a holder → delegate to
+        _handle_port_conflict with that exact PID."""
+        with mock.patch.object(launcher, "_port_held", return_value=True), \
+             mock.patch.object(launcher, "_find_port_holder_pid", return_value=4242), \
              mock.patch.object(launcher, "_handle_port_conflict") as handle:
             launcher._resolve_port_conflict(8000)
         handle.assert_called_once_with(8000, 4242)
-        bind_probe.assert_not_called()
 
     def test_reuseaddr_footgun_foreign_holder_still_caught(self):
-        """REGRESSION (matika#113): even when the bind probe reports the port as
-        FREE (the SO_REUSEADDR foot-gun that defeated the old bind-only gate), a
-        foreign holder found by psutil is still detected and fails loud — the
-        bind probe is not the decision signal."""
-        with mock.patch.object(launcher, "_find_port_holder_pid", return_value=999), \
-             mock.patch.object(launcher, "_port_available", return_value=True), \
+        """REGRESSION (matika#113 + the rc.13 gap): a foreign holder that sets
+        SO_REUSEADDR is still detected as HELD by the connect() probe (immune
+        to the bind-based foot-gun that let it slip past the old bind-only
+        gate), identified by psutil, and fails loud without ever being
+        killed."""
+        with mock.patch.object(launcher, "_port_held", return_value=True), \
+             mock.patch.object(launcher, "_find_port_holder_pid", return_value=999), \
              mock.patch.object(launcher, "_probe_healthz_with_retry", return_value=None), \
              mock.patch.object(launcher, "_is_manomatika_process", return_value=False), \
              mock.patch.object(launcher, "_force_kill_process") as kill, \
@@ -847,6 +886,23 @@ class TestResolvePortConflict:
             launcher._resolve_port_conflict(8000)
         assert exc_info.value.code == 1
         kill.assert_not_called()
+
+    def test_held_but_psutil_returns_none_identity_fails_loud(self):
+        """The rc.13 gap this run closes: connect() confirms the port is
+        HELD, psutil finds the holder PID, but _is_manomatika_process cannot
+        positively identify it (AccessDenied/gone → None) → NOT positively
+        ours → fail loud, never fall through to any 'free' conclusion."""
+        with mock.patch.object(launcher, "_port_held", return_value=True), \
+             mock.patch.object(launcher, "_find_port_holder_pid", return_value=4242), \
+             mock.patch.object(launcher, "_probe_healthz_with_retry", return_value=None), \
+             mock.patch.object(launcher, "_is_manomatika_process", return_value=None), \
+             mock.patch.object(launcher, "_force_kill_process") as kill, \
+             mock.patch.object(launcher, "_show_port_error") as show_error, \
+             pytest.raises(SystemExit) as exc_info:
+            launcher._resolve_port_conflict(8000)
+        assert exc_info.value.code == 1
+        kill.assert_not_called()
+        show_error.assert_called_once_with(8000, holder_pid=4242)
 
 
 class TestHandlePortConflict:
@@ -936,10 +992,12 @@ class TestPortRecovery:
     """Integration-style tests for the port-conflict branch wired into main()."""
 
     def _run_main_with_port_taken(self, probe_return, tmp_path, **extra_patches):
-        """Run main() with a psutil holder present (default pid 4242) and
-        _probe_healthz_with_retry returning probe_return. The port decision now
-        keys off _find_port_holder_pid (the psutil authority), NOT _port_available
-        — which is why the SO_REUSEADDR foot-gun regressed the old bind-only gate.
+        """Run main() with the port confirmed HELD (connect() probe), a
+        psutil holder present (default pid 4242), and _probe_healthz_with_retry
+        returning probe_return. The "is it held" decision keys off _port_held
+        (the connect() authority); "who holds it" keys off
+        _find_port_holder_pid (psutil) — the SO_REUSEADDR foot-gun that
+        regressed the old bind-only gate can't reach either signal.
         extra_patches are additional mock.patch.object context managers
         (name -> kwargs dict) applied around the call."""
         (tmp_path / ".initialized").touch()
@@ -949,6 +1007,7 @@ class TestPortRecovery:
             mock.patch.object(launcher, "_load_env"),
             mock.patch.object(launcher, "_extract_bundled_plugins"),
             mock.patch.object(launcher, "_bundle_path", return_value=str(tmp_path)),
+            mock.patch.object(launcher, "_port_held", return_value=True),
             mock.patch.object(launcher, "_find_port_holder_pid", return_value=4242),
             mock.patch.object(launcher, "_probe_healthz_with_retry", return_value=probe_return),
             mock.patch.dict(os.environ, {}),
@@ -986,13 +1045,13 @@ class TestPortRecovery:
 
     def test_reuseaddr_footgun_foreign_holder_fails_loud_via_main(self, tmp_path):
         """REGRESSION (matika#113): the exact gate failure. A foreign holder sets
-        SO_REUSEADDR, so the bind probe (_port_available) reports the port FREE —
-        yet main() MUST still detect the foreign holder via psutil and fail loud
-        (exit 1) without killing it. This test FAILS against the pre-fix launcher
-        (whose `if not _port_available: handle` gate is skipped when the probe
-        says free → the app boots straight through) and PASSES with the fix.
+        SO_REUSEADDR — a bind-based probe would have reported the port FREE —
+        yet main() MUST detect the foreign holder via the connect() probe,
+        identify it via psutil, and fail loud (exit 1) without killing it.
+        This test FAILS against a pre-fix (bind-based) launcher (which would
+        boot straight through) and PASSES with the connect()-based fix.
 
-        uvicorn/threading/signal are mocked so that against the pre-fix launcher
+        uvicorn/threading/signal are mocked so that against a broken launcher
         the run does NOT hang on a real server — it proceeds to the (mocked)
         launch and returns without a SystemExit, so pytest.raises fails cleanly
         with "DID NOT RAISE" (the demonstrable escape). With the fix, main()
@@ -1008,7 +1067,7 @@ class TestPortRecovery:
              mock.patch.object(launcher, "_load_env"), \
              mock.patch.object(launcher, "_extract_bundled_plugins"), \
              mock.patch.object(launcher, "_bundle_path", return_value=str(tmp_path)), \
-             mock.patch.object(launcher, "_port_available", return_value=True), \
+             mock.patch.object(launcher, "_port_held", return_value=True), \
              mock.patch.object(launcher, "_find_port_holder_pid", return_value=999), \
              mock.patch.object(launcher, "_probe_healthz_with_retry", return_value=None), \
              mock.patch.object(launcher, "_is_manomatika_process", return_value=False), \
@@ -1025,21 +1084,35 @@ class TestPortRecovery:
         kill.assert_not_called()
         mock_server.run.assert_not_called()  # fail-loud BEFORE any launch
 
+    def test_not_positively_ours_via_main_fails_loud(self, tmp_path):
+        """The rc.13 gap this run closes, exercised through main(): the port
+        is confirmed HELD, psutil finds a holder PID, but its identity can't
+        be positively confirmed (AccessDenied/gone → None) → must fail loud,
+        never fall through to a 'free' conclusion."""
+        with mock.patch.object(launcher, "_show_port_error"), \
+             pytest.raises(SystemExit) as exc_info:
+            self._run_main_with_port_taken(
+                None, tmp_path,
+                _is_manomatika_process={"return_value": None},
+                _force_kill_process={"side_effect": AssertionError("must not kill an unidentified holder")},
+            )
+        assert exc_info.value.code == 1
+
     def test_ambiguous_holder_treated_as_fail_loud(self, tmp_path):
-        """psutil finds no holder but the port will NOT bind → ambiguous holder,
-        fail loud, exit 1 (never boot over an unidentifiable holder)."""
+        """connect() confirms the port IS held, but psutil can't attribute a
+        holder → ambiguous, fail loud, exit 1 (never boot over an
+        unidentifiable-but-confirmed-held port)."""
         with mock.patch.object(launcher, "_show_port_error"), \
              pytest.raises(SystemExit) as exc_info:
             self._run_main_with_port_taken(
                 None, tmp_path,
                 _find_port_holder_pid={"return_value": None},
-                _port_available={"return_value": False},
             )
         assert exc_info.value.code == 1
 
     def test_free_port_proceeds_to_fresh_launch(self, tmp_path):
-        """No holder (psutil) + bind ok → genuinely free → main() proceeds
-        through to the uvicorn launch path without any conflict handling."""
+        """connect() refused → genuinely free → main() proceeds through to
+        the uvicorn launch path without any conflict handling."""
         mock_server = mock.MagicMock()
         mock_uvicorn = mock.MagicMock()
         mock_uvicorn.Config.return_value = mock.MagicMock()
@@ -1051,8 +1124,8 @@ class TestPortRecovery:
              mock.patch.object(launcher, "_load_env"), \
              mock.patch.object(launcher, "_extract_bundled_plugins"), \
              mock.patch.object(launcher, "_bundle_path", return_value=str(tmp_path)), \
-             mock.patch.object(launcher, "_find_port_holder_pid", return_value=None), \
-             mock.patch.object(launcher, "_port_available", return_value=True), \
+             mock.patch.object(launcher, "_port_held", return_value=False), \
+             mock.patch.object(launcher, "_find_port_holder_pid") as find_holder, \
              mock.patch.object(launcher, "_handle_port_conflict") as handle, \
              mock.patch("signal.signal"), \
              mock.patch("signal.getsignal", return_value=__import__("signal").default_int_handler), \
@@ -1060,6 +1133,7 @@ class TestPortRecovery:
              mock.patch("threading.Thread"), \
              mock.patch.dict(os.environ, {}):
             launcher.main()  # must NOT raise — free port, straight to launch
+        find_holder.assert_not_called()
         handle.assert_not_called()
         mock_server.run.assert_called_once()
 
@@ -1077,7 +1151,7 @@ class TestPortRecovery:
              mock.patch.object(launcher, "_load_env"), \
              mock.patch.object(launcher, "_extract_bundled_plugins"), \
              mock.patch.object(launcher, "_bundle_path", return_value=str(tmp_path)), \
-             mock.patch.object(launcher, "_port_available", return_value=False), \
+             mock.patch.object(launcher, "_port_held", return_value=True), \
              mock.patch.object(launcher, "_probe_healthz_with_retry", return_value=None), \
              mock.patch.object(launcher, "_find_port_holder_pid", return_value=4242), \
              mock.patch.object(launcher, "_is_manomatika_process", return_value=True), \
@@ -1123,7 +1197,7 @@ class TestShutdownHandler:
              mock.patch.object(launcher, "_extract_bundled_plugins"), \
              mock.patch.object(launcher, "_bundle_path", return_value=str(tmp_path)), \
              mock.patch.object(launcher, "_find_port_holder_pid", return_value=None), \
-             mock.patch.object(launcher, "_port_available", return_value=True), \
+             mock.patch.object(launcher, "_port_held", return_value=False), \
              mock.patch("signal.signal", side_effect=_fake_signal_install), \
              mock.patch("signal.getsignal", return_value=_signal.default_int_handler), \
              mock.patch.dict(sys.modules, {"uvicorn": mock_uvicorn}), \
@@ -1158,11 +1232,11 @@ class TestFreezeSupport:
 
 
 class TestCrashPortFree:
-    """Port-bind approach: no stale lock file on crash (OS releases port on process exit)."""
+    """No stale lock file on crash (OS releases the port on process exit)."""
 
-    def test_port_available_function_exists(self):
-        """_port_available must exist and be callable (bind-based, not connect-based)."""
-        assert callable(launcher._port_available)
+    def test_port_held_function_exists(self):
+        """_port_held must exist and be callable (connect()-based authority)."""
+        assert callable(launcher._port_held)
 
     def test_no_file_lock_used(self):
         """Verify launcher does not use a file-based lock for port management."""
@@ -1171,10 +1245,12 @@ class TestCrashPortFree:
         assert "fcntl" not in text, "launcher must not use fcntl file locks"
         assert "lockfile" not in text, "launcher must not use lockfile"
 
-    def test_port_in_use_function_removed(self):
-        """Old TCP-connect _port_in_use function must not exist; superseded by bind-check."""
-        assert not hasattr(launcher, "_port_in_use"), (
-            "_port_in_use still exists; it should have been replaced by _port_available"
+    def test_port_available_function_removed(self):
+        """Old bind()-based _port_available must not exist; superseded by the
+        connect()-based _port_held (rc.14 — bind() success is not a valid
+        'is this port free?' test under SO_REUSEADDR)."""
+        assert not hasattr(launcher, "_port_available"), (
+            "_port_available still exists; it should have been replaced by _port_held"
         )
 
 
