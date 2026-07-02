@@ -15,7 +15,6 @@ from ..database import (
 )
 from ..models import User, Role, Permission, SystemSetting
 from ..core.constants import PageType, PermissionLevel
-from ..core.logging_config import ACTIVE_LOG, STARTUP_LOG, LOG_DIR
 from ..auth.service import get_password_hash
 from ..auth.dependencies import login_required, validate_csrf
 
@@ -75,7 +74,7 @@ async def export_system_page(request: Request, user: User = Depends(check_page_p
 async def export_system_data(filename: str = Form(...), include_logging: bool = Form(False), include_system_roles: bool = Form(False), user: User = Depends(check_page_permission), db: Session = Depends(get_db)):
     export_payload = {"metadata": {"type": "system_config", "version": get_system_setting(db, "version", "unknown"), "timestamp": datetime.now().isoformat(), "exported_by": user.email}}
     if include_logging:
-        export_payload["system_settings"] = {s.name: s.value for s in db.query(SystemSetting).filter(SystemSetting.name.in_(["app_log_lines", "app_log_retention", "startup_log_lines", "startup_log_retention", "test_log_lines", "test_log_retention"])).all()}
+        export_payload["system_settings"] = {s.name: s.value for s in db.query(SystemSetting).filter(SystemSetting.name.in_(["aggregate_log_lines", "aggregate_log_retention", "startup_log_lines", "startup_log_retention"])).all()}
     if include_system_roles:
         export_payload["roles"] = [{"name": r.name, "description": r.description, "is_system": True, "permissions": [{"path": p.page_path, "type": p.page_type, "level": p.level} for p in r.permissions]} for r in db.query(Role).filter(Role.is_system == True).options(selectinload(Role.permissions)).all()]
     if not filename.endswith(".json"): filename += ".json"
@@ -102,7 +101,7 @@ async def system_import(file: UploadFile = File(...), include_logging: bool = Fo
         if "system_settings" in data:
             s_data = data["system_settings"]
             if include_logging:
-                for k in ["app_log_lines", "app_log_retention", "startup_log_lines", "startup_log_retention", "test_log_lines", "test_log_retention"]:
+                for k in ["aggregate_log_lines", "aggregate_log_retention", "startup_log_lines", "startup_log_retention"]:
                     if k in s_data:
                         s = db.query(SystemSetting).filter(SystemSetting.name == k).first()
                         if s: s.value = s_data[k]

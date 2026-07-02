@@ -107,8 +107,14 @@ def _bundle_path(*parts: str) -> str:
 
 
 def _data_dir() -> Path:
-    """Return (and create if necessary) the writable ~/matika directory."""
-    d = Path.home() / "matika"
+    """Return (and create if necessary) the writable MATIKA_HOME directory.
+
+    Honors the single ``MATIKA_HOME`` env authority (see
+    ``matika.core.paths.get_matika_home``); defaults to ``~/matika`` when unset,
+    which is the frozen-app home.
+    """
+    explicit = os.environ.get("MATIKA_HOME")
+    d = Path(explicit).expanduser() if explicit else Path.home() / "matika"
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -135,41 +141,33 @@ def _load_env(env_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 def _setup_logging(data_dir: Path) -> None:
-    """Configure file + stream logging to ~/matika/logs/matika-<date>.log.
+    """Begin the unified logging authority's STARTUP phase for the frozen app.
 
-    Called as the first action after ~/matika/ exists so that a Finder-
-    launched crash always leaves a diagnosable log on disk — Finder discards
-    stdout/stderr, making the log file the only durable diagnostic surface.
+    Delegates to ``matika.core.logging_setup.begin_startup_phase`` — the single
+    config/format/path authority — so the launcher and the in-app runtime share
+    ONE format, ONE dated-file scheme, and ONE per-process ``run_id`` (the boot
+    records buffered here are flushed into the runtime-aggregate sink when the app
+    later enters its runtime phase).
 
-    Adds handlers directly to the root logger (does NOT use basicConfig) so
-    the call is idempotent-safe across repeated calls in tests and always
-    installs the file handler regardless of prior logging state.
+    Called as the first action after MATIKA_HOME exists so a Finder-launched
+    crash always leaves a diagnosable log on disk — Finder discards stdout/stderr,
+    making the dated startup log the only durable diagnostic surface. File + stream
+    handlers are installed on the root logger at DEBUG.
 
-    Idempotent: a second call is a no-op so the bootstrap-then-main sequence
-    does not double-install handlers.
+    Idempotent: a second call is a no-op so the bootstrap-then-main sequence does
+    not double-install handlers.
     """
     global _LOG_PATH, _LOGGING_CONFIGURED
     if _LOGGING_CONFIGURED:
         return
 
-    log_dir = data_dir / "logs"
-    log_dir.mkdir(parents=True, exist_ok=True)
-    log_path = log_dir / f"matika-{date.today().isoformat()}.log"
+    from matika.core import logging_setup
 
-    fmt = logging.Formatter("%(asctime)s %(levelname)-8s %(name)s: %(message)s")
+    log_path = logging_setup.begin_startup_phase(
+        home=data_dir, level=logging.DEBUG, with_stream=True
+    )
 
-    fh = logging.FileHandler(log_path, encoding="utf-8")
-    fh.setFormatter(fmt)
-
-    sh = logging.StreamHandler()
-    sh.setFormatter(fmt)
-
-    root = logging.getLogger()
-    root.setLevel(logging.DEBUG)
-    root.addHandler(fh)
-    root.addHandler(sh)
-
-    _LOG_PATH = log_path
+    _LOG_PATH = Path(log_path) if log_path is not None else None
     _LOGGING_CONFIGURED = True
     logger.info("Matika starting — log: %s", log_path)
 
@@ -194,9 +192,11 @@ def _emergency_log_path() -> Path:
     if _LOG_PATH is not None:
         return _LOG_PATH
     try:
-        log_dir = Path.home() / "matika" / "logs"
+        log_dir = _data_dir() / "logs"
         log_dir.mkdir(parents=True, exist_ok=True)
-        return log_dir / f"matika-{date.today().isoformat()}.log"
+        # Mirror logging_setup's startup dated-file scheme without importing it,
+        # so the emergency path stays bulletproof even for pre-import failures.
+        return log_dir / f"matika-startup-{date.today().isoformat()}.log"
     except Exception:
         return Path.home() / "matika" / "startup-failure.log"
 

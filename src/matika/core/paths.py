@@ -15,31 +15,53 @@ def get_base_dir():
 
 BASE_DIR = get_base_dir()
 
-def get_writable_root():
-    """Returns a writable directory for logs and data."""
+def get_matika_home():
+    """Return the single writable MATIKA_HOME — the one home/data-dir authority.
+
+    ``MATIKA_HOME`` is the SOLE environment override for the writable root that
+    holds ``data/``, ``logs/``, and ``plugins/`` (it collapses the competing
+    home/data-dir notions that used to live in paths, the launcher, and the old
+    ``LOG_DIR`` override). Resolution order:
+
+      1. ``MATIKA_HOME`` env var, if set — fail LOUD (naming the var and the
+         resolved path) when that explicit home cannot be created/written, rather
+         than silently masking it with a default.
+      2. A frozen (PyInstaller) bundle → ``~/matika``.
+      3. Development → the current working directory when writable, else
+         ``~/matika``.
+
+    The returned home's ``data/`` subfolder is always ensured to exist.
+    """
+    explicit = os.environ.get("MATIKA_HOME")
+    if explicit:
+        home = os.path.abspath(os.path.expanduser(explicit))
+        try:
+            os.makedirs(os.path.join(home, "data"), exist_ok=True)
+        except OSError as exc:
+            raise RuntimeError(
+                f"MATIKA_HOME={explicit!r} (resolved to {home!r}) is not a usable "
+                f"home directory: {exc}"
+            ) from exc
+        return home
+
     home_dir = os.path.expanduser("~")
     app_folder = os.path.join(home_dir, "matika")
-    
-    # Ensure root folder and data subfolder exist
-    if not os.path.exists(app_folder):
-        os.makedirs(app_folder, exist_ok=True)
-    
-    data_folder = os.path.join(app_folder, "data")
-    if not os.path.exists(data_folder):
-        os.makedirs(data_folder, exist_ok=True)
 
     # If running as a bundle, ALWAYS use ~/matika
     if getattr(sys, 'frozen', False):
+        os.makedirs(os.path.join(app_folder, "data"), exist_ok=True)
         return app_folder
 
     cwd = os.getcwd()
     # If CWD is writable and not system root, use it (for dev)
     if os.access(cwd, os.W_OK) and not cwd == "/":
+        os.makedirs(os.path.join(cwd, "data"), exist_ok=True)
         return cwd
-    
+
+    os.makedirs(os.path.join(app_folder, "data"), exist_ok=True)
     return app_folder
 
-ROOT_DIR = get_writable_root()
+ROOT_DIR = get_matika_home()
 
 
 # ===========================================================================

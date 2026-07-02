@@ -12,17 +12,17 @@
             <h2 style="margin-bottom: 25px;">{{ t.heading_logging_settings }}</h2>
             
             <div style="display: flex; flex-direction: column; gap: 40px;">
-                <!-- Application Log Sub-section -->
+                <!-- Runtime-aggregate Log Sub-section -->
                 <div class="log-sub-section">
-                    <h3 style="margin: 0 0 15px 0; border-bottom: 2px solid #000; padding-bottom: 5px; display: inline-block;">{{ t.heading_app_log }}</h3>
+                    <h3 style="margin: 0 0 15px 0; border-bottom: 2px solid #000; padding-bottom: 5px; display: inline-block;">{{ t.heading_aggregate_log }}</h3>
                     <div style="display: flex; flex-direction: column; gap: 15px; margin-top: 10px;">
                         <div>
-                            <label for="app_log_lines" style="display: block; font-weight: bold; margin-bottom: 5px;">{{ t.label_log_lines }}</label>
-                            <input type="number" id="app_log_lines" name="app_log_lines" value="{{ app_log_lines }}" style="width: 100px;">
+                            <label for="aggregate_log_lines" style="display: block; font-weight: bold; margin-bottom: 5px;">{{ t.label_log_lines }}</label>
+                            <input type="number" id="aggregate_log_lines" name="aggregate_log_lines" value="{{ aggregate_log_lines }}" style="width: 100px;">
                         </div>
                         <div>
-                            <label for="app_log_retention" style="display: block; font-weight: bold; margin-bottom: 5px;">{{ t.label_log_retention }}</label>
-                            <input type="number" id="app_log_retention" name="app_log_retention" value="{{ app_log_retention }}" min="1" max="31" style="width: 100px;">
+                            <label for="aggregate_log_retention" style="display: block; font-weight: bold; margin-bottom: 5px;">{{ t.label_log_retention }}</label>
+                            <input type="number" id="aggregate_log_retention" name="aggregate_log_retention" value="{{ aggregate_log_retention }}" min="1" max="365" style="width: 100px;">
                         </div>
                     </div>
                 </div>
@@ -37,22 +37,7 @@
                         </div>
                         <div>
                             <label for="startup_log_retention" style="display: block; font-weight: bold; margin-bottom: 5px;">{{ t.label_log_retention }}</label>
-                            <input type="number" id="startup_log_retention" name="startup_log_retention" value="{{ startup_log_retention }}" min="1" max="31" style="width: 100px;">
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Unit Test Log Sub-section -->
-                <div class="log-sub-section">
-                    <h3 style="margin: 0 0 15px 0; border-bottom: 2px solid #000; padding-bottom: 5px; display: inline-block;">{{ t.heading_test_log }}</h3>
-                    <div style="display: flex; flex-direction: column; gap: 15px; margin-top: 10px;">
-                        <div>
-                            <label for="test_log_lines" style="display: block; font-weight: bold; margin-bottom: 5px;">{{ t.label_log_lines }}</label>
-                            <input type="number" id="test_log_lines" name="test_log_lines" value="{{ test_log_lines }}" style="width: 100px;">
-                        </div>
-                        <div>
-                            <label for="test_log_retention" style="display: block; font-weight: bold; margin-bottom: 5px;">{{ t.label_log_retention }}</label>
-                            <input type="number" id="test_log_retention" name="test_log_retention" value="{{ test_log_retention }}" min="1" max="31" style="width: 100px;">
+                            <input type="number" id="startup_log_retention" name="startup_log_retention" value="{{ startup_log_retention }}" min="1" max="365" style="width: 100px;">
                         </div>
                     </div>
                 </div>

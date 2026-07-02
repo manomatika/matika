@@ -108,28 +108,24 @@ async def system_settings_page(request: Request, user: User = Depends(check_page
     timeout_seconds = int(get_system_setting(db, "session_idle_timeout", "1800"))
     return request.app.state.templates.TemplateResponse(request, "system_settings.html", {
         "user": user,
-        "app_log_lines": get_system_setting(db, "app_log_lines", "100"),
-        "app_log_retention": get_system_setting(db, "app_log_retention", "10"),
+        "aggregate_log_lines": get_system_setting(db, "aggregate_log_lines", "100"),
+        "aggregate_log_retention": get_system_setting(db, "aggregate_log_retention", "10"),
         "startup_log_lines": get_system_setting(db, "startup_log_lines", "100"),
         "startup_log_retention": get_system_setting(db, "startup_log_retention", "10"),
-        "test_log_lines": get_system_setting(db, "test_log_lines", "100"),
-        "test_log_retention": get_system_setting(db, "test_log_retention", "10"),
         "session_idle_timeout": timeout_seconds // 60,
     })
 
 @router.post("/system")
 async def save_system_settings(
-    app_log_lines: str = Form("100"), app_log_retention: str = Form("10"),
+    aggregate_log_lines: str = Form("100"), aggregate_log_retention: str = Form("10"),
     startup_log_lines: str = Form("100"), startup_log_retention: str = Form("10"),
-    test_log_lines: str = Form("100"), test_log_retention: str = Form("10"),
     session_idle_timeout: str = Form("30"),
     user: User = Depends(login_required), db: Session = Depends(get_db)
 ):
     timeout_seconds = str(int(session_idle_timeout) * 60)
     settings = {
-        "app_log_lines": app_log_lines, "app_log_retention": app_log_retention,
+        "aggregate_log_lines": aggregate_log_lines, "aggregate_log_retention": aggregate_log_retention,
         "startup_log_lines": startup_log_lines, "startup_log_retention": startup_log_retention,
-        "test_log_lines": test_log_lines, "test_log_retention": test_log_retention,
         "session_idle_timeout": timeout_seconds,
     }
     for n, v in settings.items():

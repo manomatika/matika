@@ -16,10 +16,7 @@ from .core.paths import BASE_DIR, get_matika_version
 from .database import SessionLocal, init_db, get_db, get_system_setting
 from .core.constants import PageType
 from .i18n import I18nService
-from .core.logging_config import (
-    setup_startup_logging, rotate_logs, cleanup_logs, finalize_logging,
-    ACTIVE_LOG, STARTUP_LOG, LOG_DIR
-)
+from .core import logging_setup
 from .core.utils import format_num
 from .auth.service import setup_oauth
 from .routers import public, settings, admin
@@ -71,9 +68,11 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 def create_app() -> FastAPI:
     # --- 1. LOGGING & INITIALIZATION ---
-    setup_startup_logging(IS_TESTING)
+    # Phase 1 (startup) of the unified logging authority. A no-op under tests so
+    # the suite never installs file handlers; the runtime handoff (phase 2) runs
+    # at module load below for real (non-test) processes.
+    logging_setup.begin_startup_phase(is_testing=IS_TESTING)
     logger = logging.getLogger(__name__)
-    rotate_logs(IS_TESTING)
 
     # --- 2. APP SETUP ---
     from .auth.dependencies import get_current_user, login_required
@@ -170,16 +169,17 @@ def create_app() -> FastAPI:
     @app.get("/show-log", response_class=PlainTextResponse, tags=[PageType.INFO])
     async def show_log(
         request: Request,
-        type: str = "app",
+        type: str = "aggregate",
         db: Session = Depends(get_db),
         _user=Depends(login_required),          # authenticated users only
     ):
         log_map = {
-            "app": (ACTIVE_LOG, "app_log_lines"),
-            "startup": (STARTUP_LOG, "startup_log_lines"),
-            "test": (os.path.join(LOG_DIR, "test_matika.log"), "test_log_lines"),
+            "aggregate": (logging_setup.aggregate_log_path(), "aggregate_log_lines"),
+            "startup": (logging_setup.startup_log_path(), "startup_log_lines"),
         }
-        path, setting = log_map.get(type, (ACTIVE_LOG, "app_log_lines"))
+        path, setting = log_map.get(
+            type, (logging_setup.aggregate_log_path(), "aggregate_log_lines")
+        )
         if os.path.exists(path):
             with open(path, "r") as f:
                 lines = f.readlines()
@@ -211,9 +211,18 @@ if not IS_TESTING:
     db_session = SessionLocal()
     init_db(db_session)
     init_plugins(app, db_session)
-    cleanup_logs(db_session, IS_TESTING)
+    # Phase 2 (runtime) handoff: flush the buffered startup history into the
+    # runtime-aggregate sink (same run_id), then prune dated files per-sink by
+    # each sink's own retention count.
+    logging_setup.prune_logs(
+        {
+            "aggregate": int(get_system_setting(db_session, "aggregate_log_retention", "10")),
+            "startup": int(get_system_setting(db_session, "startup_log_retention", "10")),
+        },
+        is_testing=IS_TESTING,
+    )
     db_session.close()
-    finalize_logging(IS_TESTING)
+    logging_setup.begin_runtime_phase(is_testing=IS_TESTING)
 
 if __name__ == "__main__":
     import uvicorn

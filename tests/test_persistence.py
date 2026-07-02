@@ -201,7 +201,7 @@ class TestAlembicMigrations:
 
         migration_ctx = MigrationContext.configure(conn)
         current_rev = migration_ctx.get_current_revision()
-        assert current_rev == "a7593cab3e1b", (
-            f"Database is at revision '{current_rev}', expected 'a7593cab3e1b' (head). "
+        assert current_rev == "b1f2c3d4e5a6", (
+            f"Database is at revision '{current_rev}', expected 'b1f2c3d4e5a6' (head). "
             "Run `alembic upgrade head` to apply pending migrations."
         )
