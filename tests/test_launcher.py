@@ -1339,7 +1339,7 @@ class TestSetupLogging:
         launcher._setup_logging(tmp_path)
         log_dir = tmp_path / "logs"
         assert log_dir.is_dir()
-        expected = log_dir / f"matika-{_date.today().isoformat()}.log"
+        expected = log_dir / f"matika-startup-{_date.today().isoformat()}.log"
         assert expected.exists(), f"Expected log file not created: {expected}"
 
     def test_log_file_captures_messages(self, tmp_path, clean_root_logger):
@@ -1347,7 +1347,7 @@ class TestSetupLogging:
         import logging as _logging
         from datetime import date as _date
         launcher._setup_logging(tmp_path)
-        log_path = tmp_path / "logs" / f"matika-{_date.today().isoformat()}.log"
+        log_path = tmp_path / "logs" / f"matika-startup-{_date.today().isoformat()}.log"
         _logging.getLogger("test.launcher").info("sentinel_message_xyz")
         content = log_path.read_text(encoding="utf-8")
         assert "sentinel_message_xyz" in content
@@ -1359,7 +1359,7 @@ class TestSetupLogging:
         import logging as _logging
         from datetime import date as _date
         launcher._setup_logging(tmp_path)
-        log_path = tmp_path / "logs" / f"matika-{_date.today().isoformat()}.log"
+        log_path = tmp_path / "logs" / f"matika-startup-{_date.today().isoformat()}.log"
         try:
             raise RuntimeError("simulated first-run failure")
         except Exception:
@@ -1413,7 +1413,7 @@ class TestEarlyFailureLogging:
         except ImportError as exc:
             tb_text = launcher._write_fatal(exc)
 
-        log_path = fake_home / "matika" / "logs" / f"matika-{_date.today().isoformat()}.log"
+        log_path = fake_home / "matika" / "logs" / f"matika-startup-{_date.today().isoformat()}.log"
         assert log_path.exists(), "no log file written for an early failure"
         content = log_path.read_text(encoding="utf-8")
         assert "FATAL startup failure" in content
@@ -1429,7 +1429,7 @@ class TestEarlyFailureLogging:
         from datetime import date as _date
 
         launcher._setup_logging(tmp_path)
-        log_path = tmp_path / "logs" / f"matika-{_date.today().isoformat()}.log"
+        log_path = tmp_path / "logs" / f"matika-startup-{_date.today().isoformat()}.log"
 
         try:
             raise RuntimeError("boom during startup")
@@ -1457,7 +1457,7 @@ class TestEarlyFailureLogging:
         except ValueError as exc:
             launcher._excepthook(type(exc), exc, exc.__traceback__)
 
-        log_path = fake_home / "matika" / "logs" / f"matika-{_date.today().isoformat()}.log"
+        log_path = fake_home / "matika" / "logs" / f"matika-startup-{_date.today().isoformat()}.log"
         content = log_path.read_text(encoding="utf-8")
         assert "ValueError" in content
         assert "uncaught at top level" in content

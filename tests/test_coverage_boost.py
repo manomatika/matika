@@ -3,38 +3,36 @@ import os
 import json
 from io import BytesIO
 from fastapi import Depends, HTTPException
-from matika.core.logging_config import setup_startup_logging, rotate_logs, cleanup_logs, finalize_logging, LOG_DIR
+from matika.core import logging_setup
 from matika.data_mgmt.export_import import get_activity_categories
 from matika.core import paths
 from matika.database import PageType
 
-def test_logging_rotation_and_cleanup(db):
-    setup_startup_logging(is_testing=False)
-    rotate_logs(is_testing=False)
-    for i in range(5):
-        with open(os.path.join(LOG_DIR, f"test_log_{i}.log"), "w") as f:
-            f.write("test")
-    cleanup_logs(db, is_testing=False)
-    finalize_logging(is_testing=False)
-    assert os.path.exists(LOG_DIR)
+
+def test_logging_prune_keeps_newest_per_retention(tmp_path):
+    """Dated-file rotation keeps only the newest N aggregate files by retention."""
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    for day in ("2026-01-01", "2026-01-02", "2026-01-03"):
+        (log_dir / f"matika-{day}.log").write_text("x")
+    logging_setup.prune_logs({"aggregate": 1}, home=tmp_path)
+    remaining = sorted(p.name for p in log_dir.iterdir())
+    assert remaining == ["matika-2026-01-03.log"]
 
 
-def test_cleanup_logs_skips_non_date_prefixed_filenames(db, tmp_path, monkeypatch):
-    """Regression test for matika#40: cleanup_logs must not raise on filenames
-    whose prefix is not a YYYYMMDD date (e.g. test_matika.log)."""
-    import matika.core.logging_config as log_cfg
-
-    # Plant a non-conforming filename that previously triggered a ValueError
-    # from datetime.strptime (e.g. "test_matika.log" → date_str="test").
-    nonconforming = tmp_path / "test_matika.log"
+def test_prune_skips_non_dated_filenames(tmp_path):
+    """Regression for matika#40 (carried into the unified authority): rotation
+    must ignore filenames that are not the sink's dated pattern — never delete
+    them, never raise."""
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    nonconforming = log_dir / "test_matika.log"
     nonconforming.write_text("some log content")
+    (log_dir / "matika-2026-01-01.log").write_text("x")
 
-    monkeypatch.setattr(log_cfg, "LOG_DIR", str(tmp_path))
+    logging_setup.prune_logs({"aggregate": 0}, home=tmp_path)
 
-    # Must complete without raising any exception.
-    cleanup_logs(db, is_testing=False)
-
-    # The file must be left untouched (not deleted, not errored out).
+    # Only dated aggregate files were candidates; the stray file is untouched.
     assert nonconforming.exists()
 
 def test_export_import_categories(db):
@@ -126,7 +124,7 @@ def test_settings_import_roles_not_in_data(client, test_admin):
 
 def test_save_system_settings_full(client, test_admin):
     client.post("/login", data={"email": test_admin.email, "password": "adminpassword"})
-    data = {"app_log_lines": "200", "app_log_retention": "20", "startup_log_lines": "200", "startup_log_retention": "20", "test_log_lines": "200", "test_log_retention": "20"}
+    data = {"aggregate_log_lines": "200", "aggregate_log_retention": "20", "startup_log_lines": "200", "startup_log_retention": "20"}
     resp = client.post("/settings/system", data=data, follow_redirects=True)
     assert resp.status_code == 200
 

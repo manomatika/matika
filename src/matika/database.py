@@ -46,8 +46,7 @@ def init_db(db: Session = None):
     
     # 1. Seed initial system settings
     log_defaults = {
-        "app_log_lines": "100", "app_log_retention": "10",
-        "test_log_lines": "100", "test_log_retention": "10",
+        "aggregate_log_lines": "100", "aggregate_log_retention": "10",
         "startup_log_lines": "100", "startup_log_retention": "10",
         "session_idle_timeout": "1800",
         "version": "unknown"

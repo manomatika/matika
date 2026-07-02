@@ -25,13 +25,13 @@ def test_save_system_settings(client, test_admin, db):
     # Save settings
     response = client.post(
         "/settings/system",
-        data={"app_log_lines": "250"},
+        data={"aggregate_log_lines": "250"},
         follow_redirects=True
     )
     assert response.status_code == 200
 
     # Verify in DB
-    setting = db.query(SystemSetting).filter(SystemSetting.name == "app_log_lines").first()
+    setting = db.query(SystemSetting).filter(SystemSetting.name == "aggregate_log_lines").first()
     assert setting.value == "250"
 
 def test_save_security_settings(client, test_admin, db):
@@ -60,13 +60,13 @@ def test_show_log(client, test_admin):
         data={"email": test_admin.email, "password": "adminpassword"}
     )
     
-    # Create a dummy log file if it doesn't exist
-    LOG_DIR = "logs"
-    ACTIVE_LOG = os.path.join(LOG_DIR, "matika.log")
-    os.makedirs(LOG_DIR, exist_ok=True)
-    with open(ACTIVE_LOG, "w") as f:
+    # Write today's dated runtime-aggregate log via the single path authority,
+    # then read it back through /show-log (default type == "aggregate").
+    from matika.core import logging_setup
+    active_log = logging_setup.aggregate_log_path()
+    with open(active_log, "w") as f:
         f.write("Test log line 1\nTest log line 2\n")
-    
+
     response = client.get("/show-log")
     assert response.status_code == 200
     assert "Test log line 2" in response.text
